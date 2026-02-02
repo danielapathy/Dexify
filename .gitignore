@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.DS_Store
+
+.backup.*
+.backup
+
+.session/
+
+# Vendored deemix-main build outputs (Option B)
+deemix-main/**/dist/
+deemix-main/**/out/
+deemix-main/**/node_modules/
+deemix-main/.turbo/
+
+vendor/dist/

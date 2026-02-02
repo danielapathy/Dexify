@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["deemix-main/packages/deemix/src/*"]
+    },
+    "skipLibCheck": true,
+    "strict": false
+  }
+}

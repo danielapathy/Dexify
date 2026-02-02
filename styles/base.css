@@ -1,0 +1,96 @@
+:root {
+  --bg: #0b0b0b;
+  --ink: rgba(255, 255, 255, 0.92);
+  --muted: rgba(255, 255, 255, 0.62);
+  --muted-2: rgba(255, 255, 255, 0.42);
+  --panel: rgba(18, 18, 18, 0.88);
+  --panel-2: rgba(22, 22, 22, 0.88);
+  --stroke: rgba(255, 255, 255, 0.08);
+  --stroke-2: rgba(255, 255, 255, 0.06);
+  --shadow: 0 32px 120px rgba(0, 0, 0, 0.75);
+  --radius: 16px;
+  --radius-sm: 12px;
+  --gap: 12px;
+  --accent: #1db954;
+  --chip: rgba(255, 255, 255, 0.08);
+  --chip-hover: rgba(255, 255, 255, 0.12);
+  --chip-active: rgba(255, 255, 255, 0.96);
+  --chip-active-ink: rgba(0, 0, 0, 0.86);
+  --font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 680px at 70% -10%, rgba(120, 120, 120, 0.22), transparent 55%),
+    radial-gradient(900px 520px at 5% 15%, rgba(80, 110, 70, 0.22), transparent 50%),
+    radial-gradient(1200px 900px at 60% 110%, rgba(40, 90, 160, 0.14), transparent 55%),
+    var(--bg);
+}
+
+.stage {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 26px;
+}
+
+.is-electron .stage {
+  padding: 0;
+  place-items: stretch;
+}
+
+.window {
+  position: relative;
+  width: min(1520px, 100%);
+  height: min(860px, 100%);
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: 14px;
+}
+
+.is-electron .window {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  gap: 0;
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.window::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.25'/%3E%3C/svg%3E");
+  opacity: 0.045;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+}
+
+.topbar,

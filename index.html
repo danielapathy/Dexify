@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spotify UI Recreation</title>
+    <script>
+      (() => {
+        const ua = navigator.userAgent || "";
+        const platform = navigator.platform || "";
+        const isElectron = /\bElectron\/\d+/i.test(ua);
+        const isMac = /Mac/i.test(platform) || /Macintosh/i.test(ua);
+        const root = document.documentElement;
+        if (isElectron) root.classList.add("is-electron");
+        if (isMac) root.classList.add("is-mac");
+      })();
+    </script>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./node_modules/remixicon/fonts/remixicon.css" />
+  </head>
+  <body>
+    <div class="stage">
+      <div class="window" role="application" aria-label="Spotify UI recreation">
+        <header class="topbar">
+          <div class="topbar__left">
+            <div class="nav-arrows" aria-label="Navigation">
+              <button class="icon-btn icon-btn--nav" type="button" aria-label="Back" data-nav="back">
+                <i class="ri-arrow-left-s-line icon" aria-hidden="true"></i>
+              </button>
+              <button class="icon-btn icon-btn--nav" type="button" aria-label="Forward" data-nav="forward">
+                <i class="ri-arrow-right-s-line icon" aria-hidden="true"></i>
+              </button>
+            </div>
+
+		            <button class="home-btn" type="button" aria-label="Home" data-nav="home">
+		              <i class="ri-home-5-line icon icon--solid" aria-hidden="true"></i>
+		            </button>
+	          </div>
+
+	          <div class="topbar__center">
+	            <div class="search" role="search" data-search>
+	              <button class="icon-btn search__iconBtn" type="button" aria-label="Search" data-search-action="submit">
+	                <i class="ri-search-line icon" aria-hidden="true"></i>
+	              </button>
+		              <input
+		                class="search__input"
+		                id="topSearchInput"
+		                type="text"
+	                placeholder="What do you want to play?"
+	                aria-label="Search"
+	                autocomplete="off"
+	                spellcheck="false"
+	              />
+		              <button class="icon-btn search__clearBtn" id="topSearchClear" type="button" aria-label="Clear search" hidden>
+		                <i class="ri-close-line icon" aria-hidden="true"></i>
+		              </button>
+		              <span class="search__divider" aria-hidden="true"></span>
+		              <button class="icon-btn search__tray" type="button" aria-label="Browse">
+		                <i class="ri-inbox-line icon" aria-hidden="true"></i>
+		              </button>
+	
+	              <div class="search-popover" id="searchPopover" hidden>
+	                <div class="search-popover__panel" role="listbox" aria-label="Search suggestions">
+	                  <div class="search-popover__list" id="searchPopoverList"></div>
+	                </div>
+	              </div>
+	            </div>
+	          </div>
+
+	          <div class="topbar__right">
+	            <button class="icon-btn" id="notificationsBtn" type="button" aria-label="Notifications">
+	              <i class="ri-notification-3-line icon" aria-hidden="true"></i>
+	            </button>
+
+	            <div class="account" data-account>
+              <button
+                class="avatar-btn"
+                id="accountBtn"
+                type="button"
+                aria-label="Account"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                aria-controls="accountMenu"
+              >
+                <img
+                  id="accountAvatar"
+                  alt=""
+                  src="https://picsum.photos/seed/profile/88/88"
+                />
+              </button>
+
+              <div class="account-menu" id="accountMenu" role="menu" aria-label="Account menu" tabindex="-1" hidden>
+                <div class="account-menu__header">
+                  <img class="account-menu__avatar" id="accountMenuAvatar" alt="" src="https://picsum.photos/seed/profile/88/88" />
+                  <div class="account-menu__meta">
+                    <div class="account-menu__name" id="accountName">Guest</div>
+                    <div class="account-menu__status" id="accountStatus">Not logged in</div>
+                  </div>
+                </div>
+
+                <div class="account-menu__sep" aria-hidden="true"></div>
+
+                <button class="account-menu__item" type="button" role="menuitem" data-action="auth-login">
+                  <i class="ri-login-circle-line icon" aria-hidden="true"></i>
+                  <span>Log in</span>
+                </button>
+                <button class="account-menu__item" type="button" role="menuitem" data-action="open-settings">
+                  <i class="ri-settings-3-line icon" aria-hidden="true"></i>
+                  <span>Settings</span>
+                </button>
+                <button class="account-menu__item" type="button" role="menuitem" data-action="auth-logout" hidden>
+                  <i class="ri-logout-circle-line icon" aria-hidden="true"></i>
+                  <span>Log out</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div class="content">
+          <aside class="sidebar" aria-label="Your Library">
+            <div class="panel panel--sidebar">
+              <div class="library__header">
+                <div class="library__title">
+                  <button class="icon-btn icon-btn--soft library__collapse" type="button" aria-label="Toggle sidebar" aria-pressed="false">
+                    <i class="ri-sidebar-fold-line icon library__collapse-icon library__collapse-icon--collapse" aria-hidden="true"></i>
+                    <i class="ri-sidebar-unfold-line icon library__collapse-icon library__collapse-icon--expand" aria-hidden="true"></i>
+                  </button>
+                  <span>Your Library</span>
+                </div>
+                <div class="library__actions">
+                  <button class="icon-btn icon-btn--soft" type="button" aria-label="Create">
+                    <i class="ri-add-line icon" aria-hidden="true"></i>
+                  </button>
+                  <button class="icon-btn icon-btn--soft" type="button" aria-label="Expand">
+                    <i class="ri-expand-diagonal-line icon" aria-hidden="true"></i>
+                  </button>
+                </div>
+              </div>
+
+              <div class="library__filters">
+                <button class="pill is-active" type="button" data-filter="all" aria-pressed="true">All</button>
+                <button class="pill" type="button" data-filter="playlist" aria-pressed="false">Playlists</button>
+                <button class="pill" type="button" data-filter="podcast" aria-pressed="false">Podcasts</button>
+                <button class="pill" type="button" data-filter="album" aria-pressed="false">Albums</button>
+                <button class="pill" type="button" data-filter="artist" aria-pressed="false">Artists</button>
+              </div>
+
+              <div class="library__tools">
+                <div class="library-search" id="librarySearchPill" role="search" aria-label="Search in Your Library" aria-expanded="false">
+                  <button class="icon-btn library-search__iconBtn" id="librarySearchBtn" type="button" aria-label="Search library">
+                    <i class="ri-search-line icon" aria-hidden="true"></i>
+                  </button>
+                  <input
+                    class="library-search__input"
+                    id="librarySearchInput"
+                    type="text"
+                    placeholder="Search in Your Library"
+                    aria-label="Search in Your Library"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <button class="icon-btn library-search__clearBtn" id="librarySearchClearBtn" type="button" aria-label="Clear search">
+                    <i class="ri-close-line icon" aria-hidden="true"></i>
+                  </button>
+                </div>
+                <div class="library__tools-spacer"></div>
+                <button class="recents" type="button" aria-label="Recents">
+                  <span>Recents</span>
+                  <i class="ri-list-check icon" aria-hidden="true"></i>
+                </button>
+              </div>
+
+              <div class="library__list" id="libraryList" role="list">
+                <a class="library-item is-active" href="#" role="listitem" data-category="playlist" data-route="liked">
+                  <div class="cover cover--liked" aria-hidden="true">
+                    <i class="ri-heart-fill cover__icon" aria-hidden="true"></i>
+                  </div>
+                  <div class="library-item__meta">
+                    <div class="library-item__title">Liked Songs</div>
+                    <div class="library-item__subtitle">
+                      <i class="ri-pushpin-fill pin-icon" aria-hidden="true"></i>
+                      Playlist • 189 songs
+                    </div>
+                  </div>
+                </a>
+
+                <a class="library-item" href="#" role="listitem" data-category="playlist" data-route="downloads">
+                  <div class="cover cover--downloads" aria-hidden="true">
+                    <i class="ri-download-2-fill cover__icon" aria-hidden="true"></i>
+                  </div>
+                  <div class="library-item__meta">
+                    <div class="library-item__title">Downloads</div>
+                    <div class="library-item__subtitle">
+                      <i class="ri-pushpin-fill pin-icon" aria-hidden="true"></i>
+                      Offline • 0 songs
+                    </div>
+                  </div>
+                </a>
+
+                <a class="library-item" href="#" role="listitem" data-category="playlist">
+                  <img class="cover cover--img" alt="" src="https://picsum.photos/seed/my-playlist/96/96" />
+                  <div class="library-item__meta">
+                    <div class="library-item__title">My Playlist #5</div>
+                    <div class="library-item__subtitle">Playlist • Daniel Apathy</div>
+                  </div>
+                </a>
+
+                <a class="library-item" href="#" role="listitem" data-category="podcast">
+                  <img class="cover cover--img" alt="" src="https://picsum.photos/seed/podcast/96/96" />
+                  <div class="library-item__meta">
+                    <div class="library-item__title">Pixel Therapy</div>
+                    <div class="library-item__subtitle">Podcast • New episode</div>
+                  </div>
+                </a>
+
+                <a class="library-item" href="#" role="listitem" data-category="album">
+                  <img class="cover cover--img" alt="" src="https://picsum.photos/seed/lasting-love/96/96" />
+                  <div class="library-item__meta">
+                    <div class="library-item__title">lasting love</div>
+                    <div class="library-item__subtitle">Single • retz</div>
+                  </div>
+                </a>
+
+                <a class="library-item" href="#" role="listitem" data-category="album">
+                  <img class="cover cover--img" alt="" src="https://picsum.photos/seed/ghost-world/96/96" />
+                  <div class="library-item__meta">
+                    <div class="library-item__title">GHOST WORLD</div>
+                    <div class="library-item__subtitle">Album • Alison Wonderland</div>
+                  </div>
+                </a>
+
+                <a class="library-item" href="#" role="listitem" data-category="album">
+                  <img class="cover cover--img" alt="" src="https://picsum.photos/seed/lucky/96/96" />
+                  <div class="library-item__meta">
+                    <div class="library-item__title">L.U.C.K.Y</div>
+                    <div class="library-item__subtitle">Single • Lozeak</div>
+                  </div>
+                </a>
+
+                <a class="library-item" href="#" role="listitem" data-category="artist">
+                  <img class="cover cover--img cover--artist" alt="" src="https://picsum.photos/seed/menlo/96/96" />
+                  <div class="library-item__meta">
+                    <div class="library-item__title">MENLO PARK</div>
+                    <div class="library-item__subtitle">Artist</div>
+                  </div>
+                </a>
+
+                <a class="library-item" href="#" role="listitem" data-category="artist">
+                  <img class="cover cover--img cover--artist" alt="" src="https://picsum.photos/seed/ayesha-artist/96/96" />
+                  <div class="library-item__meta">
+                    <div class="library-item__title">Ayesha Erotica</div>
+                    <div class="library-item__subtitle">Artist</div>
+                  </div>
+                </a>
+              </div>
+            </div>
+          </aside>
+
+          <div class="splitter" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize sidebar"></div>
+
+          <main class="main" aria-label="Main">
+            <div class="panel panel--main">
+              <div class="main__scroll">
+                <div id="mainViewHome" data-view="home">
+                  <div class="chips" role="tablist" aria-label="Content filters">
+                    <button class="chip is-active" type="button" role="tab" aria-selected="true">All</button>
+                    <button class="chip" type="button" role="tab" aria-selected="false">Music</button>
+                    <button class="chip" type="button" role="tab" aria-selected="false">Podcasts</button>
+                    <button class="chip" type="button" role="tab" aria-selected="false">Audiobooks</button>
+                  </div>
+
+                  <section class="quick-grid" id="quickGrid" aria-label="Recently played"></section>
+
+                  <div id="deezerSections" data-deezer-sections></div>
+                </div>
+
+                <div id="mainViewSearch" data-view="search" hidden>
+                  <div class="search-view__header">
+                    <div class="search-view__title">Search</div>
+                    <div class="search-view__query" id="searchQueryLabel"></div>
+                  </div>
+                  <div class="search-view__filters" role="tablist" aria-label="Search filters">
+                    <button class="pill is-active" type="button" data-search-filter="all" aria-selected="true">All</button>
+                    <button class="pill" type="button" data-search-filter="track" aria-selected="false">Songs</button>
+                    <button class="pill" type="button" data-search-filter="album" aria-selected="false">Albums</button>
+                    <button class="pill" type="button" data-search-filter="artist" aria-selected="false">Artists</button>
+                    <button class="pill" type="button" data-search-filter="playlist" aria-selected="false">Playlists</button>
+                  </div>
+                  <div id="searchResults" class="search-results" aria-live="polite"></div>
+                </div>
+
+                <div id="mainViewEntity" data-view="entity" hidden>
+                  <div id="entityView" class="entity-view" aria-live="polite"></div>
+                </div>
+
+	                <div id="mainViewSettings" data-view="settings" hidden>
+	                  <div class="settings-view">
+	                    <div class="settings-view__header">
+	                      <div class="settings-view__title">Settings</div>
+                      <div class="settings-view__subtitle">Downloads • Session • Storage</div>
+                    </div>
+
+                    <div class="settings-view__grid">
+                      <section class="settings-card" aria-label="Session">
+                        <div class="settings-card__title">Session</div>
+                        <div class="settings-card__row">
+                          <div class="settings-card__label">Status</div>
+                          <div class="settings-card__value" id="settingsSessionStatus">Loading…</div>
+                        </div>
+                        <div class="settings-card__row">
+                          <div class="settings-card__label">User</div>
+                          <div class="settings-card__value" id="settingsSessionUser">—</div>
+                        </div>
+                        <div class="settings-card__actions">
+                          <button class="pill" type="button" id="settingsOpenSessionDir">Open session folder</button>
+                          <button class="pill pill--muted" type="button" id="settingsRefreshAppState">Refresh app state</button>
+                          <button class="pill pill--muted" type="button" id="settingsLogout">Log out</button>
+                        </div>
+                      </section>
+
+                      <section class="settings-card" aria-label="Downloads">
+                        <div class="settings-card__title">Downloads</div>
+                        <div class="settings-card__row">
+                          <div class="settings-card__label">Download folder</div>
+                          <div class="settings-card__value" id="settingsDownloadDir">—</div>
+                        </div>
+                        <div class="settings-card__row">
+                          <div class="settings-card__label">Quality</div>
+                          <div class="settings-card__value">
+                            <select class="settings-select" id="settingsQuality">
+                              <option value="mp3_128">MP3 128</option>
+                              <option value="mp3_320">MP3 320</option>
+                              <option value="flac">FLAC</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div class="settings-card__hint">
+                          Download quality is stored locally and used for deemix-lite downloads.
+                        </div>
+                      </section>
+	                    </div>
+	                  </div>
+	                </div>
+
+	              </div>
+	            </div>
+	          </main>
+	        </div>
+
+        <button class="friend-handle" type="button" aria-label="Toggle friend activity">
+          <i class="ri-arrow-left-s-line icon" aria-hidden="true"></i>
+        </button>
+
+        <footer class="player" aria-label="Player">
+          <div class="player__left">
+            <img class="player__cover" id="playerCover" alt="" src="https://picsum.photos/seed/menlo/100/100" />
+            <div class="player__meta">
+              <div class="player__title" id="playerTitle">MENLO PARK</div>
+              <div class="player__artist" id="playerArtist">Ayesha Erotica</div>
+            </div>
+            <button class="icon-btn" id="playerLikeBtn" type="button" aria-label="Save to your library">
+              <i class="ri-heart-line icon" aria-hidden="true"></i>
+            </button>
+          </div>
+
+          <div class="player__center">
+            <div class="player__controls" aria-label="Playback controls">
+              <button class="icon-btn" type="button" aria-label="Shuffle">
+                <i class="ri-shuffle-line icon" aria-hidden="true"></i>
+              </button>
+              <button class="icon-btn" id="playerPrevBtn" type="button" aria-label="Previous">
+                <i class="ri-skip-back-line icon" aria-hidden="true"></i>
+              </button>
+              <button class="play-btn" id="playerPlayBtn" type="button" aria-label="Play/Pause" data-play="paused">
+                <i class="ri-play-fill icon icon--solid" aria-hidden="true" data-icon="playpause"></i>
+              </button>
+              <button class="icon-btn" id="playerNextBtn" type="button" aria-label="Next">
+                <i class="ri-skip-forward-line icon" aria-hidden="true"></i>
+              </button>
+              <button class="icon-btn" type="button" aria-label="Repeat">
+                <i class="ri-repeat-2-line icon" aria-hidden="true"></i>
+              </button>
+            </div>
+
+            <div class="player__progress" aria-label="Progress">
+              <span class="time" id="playerTimeCurrent" data-time="current">0:00</span>
+              <input class="range" id="playerSeek" type="range" min="0" max="1" value="0" step="1" aria-label="Seek" />
+              <span class="time" id="playerTimeTotal" data-time="total">0:00</span>
+            </div>
+          </div>
+
+	          <div class="player__right" aria-label="Player options">
+	            <button class="icon-btn" type="button" aria-label="Queue">
+	              <i class="ri-play-list-2-line icon" aria-hidden="true"></i>
+	            </button>
+	            <button class="icon-btn" id="playerAudioSettingsBtn" type="button" aria-label="Audio settings">
+	              <i class="ri-equalizer-3-line icon" aria-hidden="true"></i>
+	            </button>
+
+	            <div class="volume" aria-label="Volume">
+	              <button class="icon-btn" type="button" aria-label="Volume">
+	                <i class="ri-volume-up-line icon" aria-hidden="true"></i>
+	              </button>
+	              <input class="range range--vol" id="playerVolume" type="range" min="0" max="100" value="78" step="1" aria-label="Volume slider" />
+	            </div>
+	          </div>
+        </footer>
+      </div>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

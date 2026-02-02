@@ -1,0 +1,33 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Dependency directories
+node_modules/
+
+# Output of 'npm pack'
+*.tgz
+
+# dotenv environment variables file
+.env
+
+# IDE
+.vscode
+.idea
+
+# development
+*.map
+dev.sh
+
+# distribution
+dist/
+release/
+out/
+
+.DS_Store
+packages/webui/public/js/*
+
+.turbo
+tsconfig.tsbuildinfo
+vite.config.*.timestamp-*

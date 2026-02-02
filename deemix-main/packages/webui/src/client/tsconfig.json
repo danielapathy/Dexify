@@ -1,0 +1,23 @@
+{
+	"extends": "../../tsconfig.config.json",
+	"compilerOptions": {
+		"rootDir": ".",
+		"outDir": "../../dist/public",
+
+		"paths": {
+			"@/*": ["./*"]
+		},
+
+		"lib": ["ES2020", "DOM", "DOM.Iterable"],
+		"types": ["vitest/globals"],
+		"noEmit": true,
+
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+
+		// Required in Vue projects
+		"jsx": "preserve",
+		"jsxImportSource": "vue"
+	},
+	"include": ["env.d.ts", "./**/*.ts", "./**/*.vue"]
+}

@@ -1,0 +1,71 @@
+/* Scrollbars (WebKit) */
+.library__list::-webkit-scrollbar,
+.main__scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.library__list::-webkit-scrollbar-thumb,
+.main__scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  border: 2px solid rgba(0, 0, 0, 0.35);
+}
+
+.library__list::-webkit-scrollbar-track,
+.main__scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (max-width: 1040px) {
+  .search {
+    width: clamp(280px, 52vw, 520px);
+  }
+
+  .content {
+    --sidebar-width: 310px;
+  }
+}
+
+@media (max-width: 920px) {
+  .stage {
+    padding: 16px;
+  }
+
+  .window {
+    height: min(900px, 100%);
+    padding: 12px;
+  }
+
+  .content {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  .splitter {
+    display: none;
+  }
+
+  .player {
+    grid-template-columns: 1fr;
+    height: auto;
+    padding: 12px;
+    gap: 14px;
+  }
+
+  .player__center {
+    order: 1;
+  }
+
+  .friend-handle {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}

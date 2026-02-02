@@ -1,0 +1,40 @@
+{
+	"name": "deemix-gui",
+	"version": "0.4.3",
+	"private": true,
+	"description": "A standalone electron app that wraps deemix-webui",
+	"main": "dist/main.js",
+	"homepage": "https://github.com/bambanah/deemix",
+	"author": "Bambanah <hello@lachie.xyz>",
+	"license": "GPL-3.0-only",
+	"type": "module",
+	"scripts": {
+		"dev": "electron .",
+		"build": "node ./scripts/build.js --mode production",
+		"package": "electron-forge package",
+		"make": "electron-forge make",
+		"lint": "eslint .",
+		"type-check": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@electron-forge/cli": "^7.8.3",
+		"@electron-forge/maker-deb": "^7.8.3",
+		"@electron-forge/maker-dmg": "^7.8.3",
+		"@electron-forge/maker-rpm": "^7.8.3",
+		"@electron-forge/maker-squirrel": "^7.8.3",
+		"@electron-forge/maker-zip": "^7.8.3",
+		"@electron-forge/plugin-auto-unpack-natives": "^7.8.3",
+		"@electron/rebuild": "^4.0.1",
+		"@types/yargs": "^17.0.33",
+		"electron": "37.2.6",
+		"esbuild": "^0.25.8",
+		"node-gyp": "^11.3.0"
+	},
+	"dependencies": {
+		"deemix-webui": "workspace:*",
+		"electron-context-menu": "^4.1.0",
+		"electron-squirrel-startup": "^1.0.1",
+		"electron-window-state-manager": "^0.3.2",
+		"yargs": "^17.7.2"
+	}
+}

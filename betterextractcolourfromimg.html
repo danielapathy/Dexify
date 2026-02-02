@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Appealing Primary Color Picker (Saliency + Weighted K-Means)</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 18px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+    @media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
+    .card { border: 1px solid rgba(127,127,127,.35); border-radius: 14px; padding: 14px; }
+    h1 { margin: 0 0 10px; font-size: 18px; }
+    h2 { margin: 10px 0 8px; font-size: 14px; opacity: .85; }
+    label { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+    input[type="number"] { width: 90px; }
+    button { padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(127,127,127,.35); background: transparent; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    canvas { width: 100%; height: auto; border-radius: 12px; border: 1px solid rgba(127,127,127,.25); }
+    .swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+    .swatch { border: 1px solid rgba(127,127,127,.35); border-radius: 12px; overflow: hidden; }
+    .chip { height: 44px; }
+    .swatch .meta { padding: 8px 10px; font-size: 12px; line-height: 1.25; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .pill { display: inline-flex; gap: 6px; align-items: center; border: 1px solid rgba(127,127,127,.35); border-radius: 999px; padding: 2px 10px; margin-left: 8px; font-size: 12px; opacity: .9; }
+    .ok { color: #2b8a3e; }
+    .warn { color: #b37c00; }
+    .err { color: #c92a2a; }
+    .small { font-size: 12px; opacity: .8; }
+    .best { outline: 3px solid rgba(100, 170, 255, .8); }
+    .controls { display:flex; gap:10px; flex-wrap: wrap; margin-top: 10px; align-items:center; }
+  </style>
+</head>
+<body>
+  <h1>Appealing Primary Color Picker <span class="pill">saliency × colorfulness × perceptual clustering</span></h1>
+  <div class="row">
+    <div class="card">
+      <h2>1) Load an image</h2>
+      <label>
+        <input id="file" type="file" accept="image/*" />
+        <span class="small">(or paste an image URL below)</span>
+      </label>
+      <label>
+        <input id="url" type="url" placeholder="https://…" style="flex:1; min-width: 240px;" />
+        <button id="loadUrl">Load URL</button>
+      </label>
+
+      <h2>2) Settings</h2>
+      <label>Clusters (K) <input id="k" type="number" min="3" max="16" step="1" value="8" /></label>
+      <label>Max analysis resolution <input id="maxRes" type="number" min="80" max="400" step="10" value="220" /> <span class="small">(downsamples for speed)</span></label>
+      <label>Max K-Means iterations <input id="iters" type="number" min="3" max="30" step="1" value="10" /></label>
+      <label><input id="centerBias" type="checkbox" checked /> Center bias (favor visually central regions)</label>
+      <label><input id="edgeWeight" type="checkbox" checked /> Edge/contrast weighting (favor subject boundaries)</label>
+      <label><input id="skinDownweight" type="checkbox" checked /> Downweight likely skin pixels</label>
+      <label><input id="avoidNeutrals" type="checkbox" checked /> Avoid near-grays/blacks/whites</label>
+
+      <div class="controls">
+        <button id="run" disabled>Extract primary color</button>
+        <button id="copy" disabled>Copy HEX</button>
+        <button id="selftest">Run self-tests</button>
+        <span id="status" class="small"></span>
+      </div>
+
+      <h2>How it works (short)</h2>
+      <div class="small">
+        We downsample the image, compute a lightweight saliency weight per pixel (center-bias + edge contrast + chroma/colorfulness), then run <b>weighted K-means</b> in <b>CIELAB</b> (perceptual space). Each cluster becomes a candidate swatch; we score clusters by <b>visual prominence</b> × <b>colorfulness</b> × <b>contrast</b>, penalizing neutrals/skin, and pick the best.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Preview</h2>
+      <canvas id="c"></canvas>
+      <h2>Result</h2>
+      <div id="primary" class="swatches"></div>
+      <h2>All candidates</h2>
+      <div id="swatches" class="swatches"></div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const els = {
+    file: document.getElementById('file'),
+    url: document.getElementById('url'),
+    loadUrl: document.getElementById('loadUrl'),
+    run: document.getElementById('run'),
+    copy: document.getElementById('copy'),
+    selftest: document.getElementById('selftest'),
+    status: document.getElementById('status'),
+    c: document.getElementById('c'),
+    k: document.getElementById('k'),
+    maxRes: document.getElementById('maxRes'),
+    iters: document.getElementById('iters'),
+    centerBias: document.getElementById('centerBias'),
+    edgeWeight: document.getElementById('edgeWeight'),
+    skinDownweight: document.getElementById('skinDownweight'),
+    avoidNeutrals: document.getElementById('avoidNeutrals'),
+    primary: document.getElementById('primary'),
+    swatches: document.getElementById('swatches'),
+  };
+
+  const ctx = els.c.getContext('2d', { willReadFrequently: true });
+  let lastHex = null;
+
+  function setStatus(msg, kind = '') {
+    els.status.className = `small ${kind}`.trim();
+    els.status.textContent = msg;
+  }
+
+  function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+
+  // --- Color conversions (sRGB D65) ---
+  function srgbToLinear(u) {
+    u /= 255;
+    return (u <= 0.04045) ? (u / 12.92) : Math.pow((u + 0.055) / 1.055, 2.4);
+  }
+  function linearToSrgb(u) {
+    u = clamp01(u);
+    return (u <= 0.0031308) ? (12.92 * u) : (1.055 * Math.pow(u, 1/2.4) - 0.055);
+  }
+
+  function rgbToXyz(r, g, b) {
+    const R = srgbToLinear(r);
+    const G = srgbToLinear(g);
+    const B = srgbToLinear(b);
+    const x = R * 0.4124564 + G * 0.3575761 + B * 0.1804375;
+    const y = R * 0.2126729 + G * 0.7151522 + B * 0.0721750;
+    const z = R * 0.0193339 + G * 0.1191920 + B * 0.9503041;
+    return [x, y, z];
+  }
+
+  function xyzToLab(x, y, z) {
+    const Xn = 0.95047, Yn = 1.00000, Zn = 1.08883;
+    let fx = x / Xn, fy = y / Yn, fz = z / Zn;
+    const eps = 216 / 24389;
+    const kappa = 24389 / 27;
+    fx = (fx > eps) ? Math.cbrt(fx) : ((kappa * fx + 16) / 116);
+    fy = (fy > eps) ? Math.cbrt(fy) : ((kappa * fy + 16) / 116);
+    fz = (fz > eps) ? Math.cbrt(fz) : ((kappa * fz + 16) / 116);
+    const L = 116 * fy - 16;
+    const a = 500 * (fx - fy);
+    const b = 200 * (fy - fz);
+    return [L, a, b];
+  }
+
+  function rgbToLab(r, g, b) {
+    const [x, y, z] = rgbToXyz(r, g, b);
+    return xyzToLab(x, y, z);
+  }
+
+  function labToXyz(L, a, b) {
+    const Xn = 0.95047, Yn = 1.00000, Zn = 1.08883;
+    const fy = (L + 16) / 116;
+    const fx = fy + a / 500;
+    const fz = fy - b / 200;
+    const eps = 216 / 24389;
+    const kappa = 24389 / 27;
+    const fx3 = fx ** 3, fy3 = fy ** 3, fz3 = fz ** 3;
+    const xr = (fx3 > eps) ? fx3 : (116 * fx - 16) / kappa;
+    const yr = (L > (kappa * eps)) ? fy3 : L / kappa;
+    const zr = (fz3 > eps) ? fz3 : (116 * fz - 16) / kappa;
+    return [xr * Xn, yr * Yn, zr * Zn];
+  }
+
+  function xyzToRgb(x, y, z) {
+    let R = x *  3.2404542 + y * -1.5371385 + z * -0.4985314;
+    let G = x * -0.9692660 + y *  1.8760108 + z *  0.0415560;
+    let B = x *  0.0556434 + y * -0.2040259 + z *  1.0572252;
+    R = Math.round(255 * linearToSrgb(R));
+    G = Math.round(255 * linearToSrgb(G));
+    B = Math.round(255 * linearToSrgb(B));
+    return [
+      Math.max(0, Math.min(255, R)),
+      Math.max(0, Math.min(255, G)),
+      Math.max(0, Math.min(255, B)),
+    ];
+  }
+
+  function labToRgb(L, a, b) {
+    const [x, y, z] = labToXyz(L, a, b);
+    return xyzToRgb(x, y, z);
+  }
+
+  function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0;
+    const l = (max + min) / 2;
+    const d = max - min;
+    if (d !== 0) {
+      s = d / (1 - Math.abs(2 * l - 1));
+      switch (max) {
+        case r: h = ((g - b) / d) % 6; break;
+        case g: h = (b - r) / d + 2; break;
+        case b: h = (r - g) / d + 4; break;
+      }
+      h *= 60;
+      if (h < 0) h += 360;
+    }
+    return [h, s, l];
+  }
+
+  function rgbToHex(r, g, b) {
+    const to2 = (n) => n.toString(16).padStart(2, '0');
+    return `#${to2(r)}${to2(g)}${to2(b)}`.toUpperCase();
+  }
+
+  // --- Simple skin detection (YCbCr heuristic; used only as a soft penalty) ---
+  function isLikelySkin(r, g, b) {
+    const Y  =  0.299 * r + 0.587 * g + 0.114 * b;
+    const Cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+    const Cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+    return (Cr > 133 && Cr < 173 && Cb > 77 && Cb < 127 && Y > 40);
+  }
+
+  // --- Image loading ---
+  async function decodeToBitmap(blob) {
+    if ('createImageBitmap' in window) {
+      return await createImageBitmap(blob);
+    }
+    return await new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Failed to decode image (unsupported format?).')); };
+      img.src = url;
+    });
+  }
+
+  async function loadFromFile(file) {
+    try {
+      return await decodeToBitmap(file);
+    } catch {
+      throw new Error('Failed to load the uploaded image. If it\'s HEIC/HEIF, convert to JPG/PNG and try again.');
+    }
+  }
+
+  async function loadFromUrl(src) {
+    try {
+      const res = await fetch(src, { mode: 'cors' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const blob = await res.blob();
+      return await decodeToBitmap(blob);
+    } catch {
+      return await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('Failed to load image from URL (likely CORS). Download it and upload instead.'));
+        img.src = src;
+      });
+    }
+  }
+
+  function drawToCanvas(img) {
+    const iw = img.width ?? img.naturalWidth;
+    const ih = img.height ?? img.naturalHeight;
+
+    const maxRes = Number(els.maxRes.value);
+    const scale = Math.min(1, maxRes / Math.max(iw, ih));
+    const w = Math.max(1, Math.round(iw * scale));
+    const h = Math.max(1, Math.round(ih * scale));
+
+    els.c.width = w;
+    els.c.height = h;
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+
+    if (img && typeof img.close === 'function') {
+      try { img.close(); } catch {}
+    }
+
+    setStatus(`Loaded ${iw}×${ih} → analyzed at ${w}×${h}`, 'ok');
+    els.run.disabled = false;
+  }
+
+  // --- Saliency weights (fast approximation) ---
+  function computeEdgeMap(luma, w, h) {
+    const out = new Float32Array(w * h);
+    let maxv = 1e-6;
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const i = y * w + x;
+        const dx = luma[i + 1] - luma[i - 1];
+        const dy = luma[i + w] - luma[i - w];
+        const g = Math.sqrt(dx * dx + dy * dy);
+        out[i] = g;
+        if (g > maxv) maxv = g;
+      }
+    }
+    for (let i = 0; i < out.length; i++) out[i] = out[i] / maxv;
+    return out;
+  }
+
+  function centerWeight(x, y, w, h) {
+    const cx = (w - 1) / 2;
+    const cy = (h - 1) / 2;
+    const dx = (x - cx) / w;
+    const dy = (y - cy) / h;
+    const d2 = dx * dx + dy * dy;
+    return Math.exp(-d2 * 6.0);
+  }
+
+  // --- Weighted k-means in CIELAB ---
+  function labDist2(p, c) {
+    const dL = p[0] - c[0];
+    const da = p[1] - c[1];
+    const db = p[2] - c[2];
+    return dL * dL + da * da + db * db;
+  }
+
+  function weightedChoiceIndex(weights) {
+    let sum = 0;
+    for (let i = 0; i < weights.length; i++) sum += weights[i];
+    let r = Math.random() * sum;
+    for (let i = 0; i < weights.length; i++) {
+      r -= weights[i];
+      if (r <= 0) return i;
+    }
+    return weights.length - 1;
+  }
+
+  function initCentroidsKMeansPP(points, weights, k) {
+    const centroids = [];
+    centroids.push(points[weightedChoiceIndex(weights)].slice());
+
+    const d2 = new Float32Array(points.length);
+    for (let c = 1; c < k; c++) {
+      let sum = 0;
+      for (let i = 0; i < points.length; i++) {
+        let best = Infinity;
+        for (let j = 0; j < centroids.length; j++) {
+          const v = labDist2(points[i], centroids[j]);
+          if (v < best) best = v;
+        }
+        d2[i] = best * weights[i];
+        sum += d2[i];
+      }
+      let r = Math.random() * sum;
+      let idx = d2.length - 1;
+      for (let i = 0; i < d2.length; i++) {
+        r -= d2[i];
+        if (r <= 0) { idx = i; break; }
+      }
+      centroids.push(points[idx].slice());
+    }
+
+    return centroids;
+  }
+
+  function weightedKMeans(points, weights, k, maxIter) {
+    const n = points.length;
+    const centroids = initCentroidsKMeansPP(points, weights, k);
+    const assign = new Int16Array(n);
+
+    for (let iter = 0; iter < maxIter; iter++) {
+      for (let i = 0; i < n; i++) {
+        let best = 0;
+        let bestd = Infinity;
+        for (let c = 0; c < k; c++) {
+          const d = labDist2(points[i], centroids[c]);
+          if (d < bestd) { bestd = d; best = c; }
+        }
+        assign[i] = best;
+      }
+
+      const sumW = new Float32Array(k);
+      const sumL = new Float32Array(k);
+      const sumA = new Float32Array(k);
+      const sumB = new Float32Array(k);
+
+      for (let i = 0; i < n; i++) {
+        const c = assign[i];
+        const w = weights[i];
+        sumW[c] += w;
+        sumL[c] += points[i][0] * w;
+        sumA[c] += points[i][1] * w;
+        sumB[c] += points[i][2] * w;
+      }
+
+      let maxShift = 0;
+      for (let c = 0; c < k; c++) {
+        if (sumW[c] < 1e-9) continue;
+        const newC = [sumL[c] / sumW[c], sumA[c] / sumW[c], sumB[c] / sumW[c]];
+        const shift = Math.sqrt(labDist2(centroids[c], newC));
+        if (shift > maxShift) maxShift = shift;
+        centroids[c] = newC;
+      }
+
+      if (maxShift < 0.2) break;
+    }
+
+    return { centroids, assign };
+  }
+
+  // --- Main extraction ---
+  function extractPrimaryColor() {
+    const w = els.c.width, h = els.c.height;
+    const img = ctx.getImageData(0, 0, w, h);
+    const data = img.data;
+
+    const luma = new Float32Array(w * h);
+    const chroma = new Float32Array(w * h);
+    const skin = new Uint8Array(w * h);
+
+    for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+      const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+      if (a < 16) { luma[p] = 0; chroma[p] = 0; skin[p] = 0; continue; }
+
+      const Y = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+      luma[p] = Y;
+
+      const [L, A, B] = rgbToLab(r, g, b);
+      const C = Math.sqrt(A*A + B*B);
+      chroma[p] = C;
+
+      skin[p] = isLikelySkin(r, g, b) ? 1 : 0;
+    }
+
+    const edge = els.edgeWeight.checked ? computeEdgeMap(luma, w, h) : null;
+
+    const points = [];
+    const weights = [];
+
+    const maxSamples = 40000;
+    const stride = Math.max(1, Math.floor(Math.sqrt((w*h) / maxSamples)));
+
+    let totalW = 0;
+
+    for (let y = 0; y < h; y += stride) {
+      for (let x = 0; x < w; x += stride) {
+        const p = y*w + x;
+        const i = p * 4;
+        const a = data[i+3];
+        if (a < 16) continue;
+        const r = data[i], g = data[i+1], b = data[i+2];
+
+        const [L, A, B] = rgbToLab(r, g, b);
+
+        const C = chroma[p];
+        const colorW = 0.25 + 0.75 * clamp01(C / 80);
+
+        let edgeW = 1.0;
+        if (edge) edgeW = 0.35 + 0.65 * edge[p];
+
+        let centerW = 1.0;
+        if (els.centerBias.checked) centerW = 0.35 + 0.65 * centerWeight(x, y, w, h);
+
+        let skinW = 1.0;
+        if (els.skinDownweight.checked && skin[p]) skinW = 0.35;
+
+        let neutralW = 1.0;
+        if (els.avoidNeutrals.checked) {
+          neutralW = 0.35 + 0.65 * clamp01(C / 40);
+        }
+
+        const wgt = colorW * edgeW * centerW * skinW * neutralW;
+        if (wgt < 0.02) continue;
+
+        points.push([L, A, B]);
+        weights.push(wgt);
+        totalW += wgt;
+      }
+    }
+
+    if (points.length < 200) {
+      throw new Error('Not enough pixels sampled. Try increasing analysis resolution.');
+    }
+
+    for (let i = 0; i < weights.length; i++) weights[i] /= (totalW + 1e-9);
+
+    const k = Math.max(3, Math.min(16, Number(els.k.value)));
+    const iters = Math.max(3, Math.min(30, Number(els.iters.value)));
+
+    const { centroids, assign } = weightedKMeans(points, weights, k, iters);
+
+    const sumW = new Float32Array(k);
+    const sumC = new Float32Array(k);
+    const sumContrast = new Float32Array(k);
+
+    let mL=0, mA=0, mB=0;
+    for (let i = 0; i < points.length; i++) {
+      const wgt = weights[i];
+      mL += points[i][0] * wgt;
+      mA += points[i][1] * wgt;
+      mB += points[i][2] * wgt;
+    }
+    const meanAll = [mL, mA, mB];
+
+    for (let i = 0; i < points.length; i++) {
+      const c = assign[i];
+      const wgt = weights[i];
+      sumW[c] += wgt;
+      const A = points[i][1], B = points[i][2];
+      sumC[c] += Math.sqrt(A*A + B*B) * wgt;
+    }
+
+    for (let c = 0; c < k; c++) {
+      sumContrast[c] = Math.sqrt(labDist2(centroids[c], meanAll));
+    }
+
+    const candidates = [];
+    for (let c = 0; c < k; c++) {
+      const wgt = sumW[c];
+      if (wgt < 1e-6) continue;
+
+      const [L, A, B] = centroids[c];
+      const C = (sumC[c] / (wgt + 1e-9));
+      const contrast = sumContrast[c];
+
+      const [r, g, b] = labToRgb(L, A, B);
+      const hex = rgbToHex(r, g, b);
+      const [, sat, lum] = rgbToHsl(r, g, b);
+
+      let lumPenalty = 1.0;
+      if (els.avoidNeutrals.checked) {
+        const nearBlack = clamp01((0.12 - lum) / 0.12);
+        const nearWhite = clamp01((lum - 0.92) / 0.08);
+        lumPenalty = 1.0 - 0.65 * Math.max(nearBlack, nearWhite);
+      }
+
+      const prominence = Math.pow(wgt, 0.55);
+      const colorfulness = Math.pow(clamp01(C / 85), 1.25);
+      const contrastTerm = Math.pow(clamp01(contrast / 70), 0.9) + 0.15;
+      const satTerm = 0.6 + 0.4 * clamp01(sat);
+
+      const score = prominence * colorfulness * contrastTerm * satTerm * lumPenalty;
+
+      candidates.push({ idx: c, L, A, B, r, g, b, hex, wgt, C, sat, lum, contrast, score });
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+
+    if (!candidates.length) throw new Error('No candidate colors found. Try disabling “Avoid neutrals” or increasing resolution.');
+
+    return { primary: candidates[0], candidates };
+  }
+
+  function renderSwatches(primary, candidates) {
+    els.primary.innerHTML = '';
+    els.swatches.innerHTML = '';
+
+    const make = (c, isBest) => {
+      const el = document.createElement('div');
+      el.className = `swatch ${isBest ? 'best' : ''}`;
+      const chip = document.createElement('div');
+      chip.className = 'chip';
+      chip.style.background = c.hex;
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.innerHTML = `
+        <div class="mono"><b>${c.hex}</b></div>
+        <div>score: ${c.score.toFixed(3)}</div>
+        <div>prominence: ${(c.wgt*100).toFixed(1)}% &nbsp; chroma: ${c.C.toFixed(1)}</div>
+        <div>sat: ${c.sat.toFixed(2)} &nbsp; lum: ${c.lum.toFixed(2)} &nbsp; contrast: ${c.contrast.toFixed(1)}</div>
+      `;
+      el.appendChild(chip);
+      el.appendChild(meta);
+
+      el.addEventListener('click', async () => {
+        lastHex = c.hex;
+        els.copy.disabled = false;
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(c.hex);
+          }
+        } catch {}
+        setStatus(`Selected ${c.hex} (clicked swatch)`, 'ok');
+      });
+
+      return el;
+    };
+
+    els.primary.appendChild(make(primary, true));
+    for (const c of candidates) {
+      els.swatches.appendChild(make(c, c.hex === primary.hex));
+    }
+  }
+
+  // --- Self-tests (in-browser, no deps) ---
+  function assert(cond, msg) {
+    if (!cond) throw new Error('Test failed: ' + msg);
+  }
+
+  function approx(a, b, tol) {
+    return Math.abs(a - b) <= tol;
+  }
+
+  function runSelfTests() {
+    // 1) HEX formatting
+    assert(rgbToHex(255, 0, 0) === '#FF0000', 'rgbToHex red');
+    assert(rgbToHex(0, 255, 0) === '#00FF00', 'rgbToHex green');
+    assert(rgbToHex(0, 0, 255) === '#0000FF', 'rgbToHex blue');
+
+    // 2) RGB -> Lab -> RGB approximate roundtrip
+    const samples = [
+      [10, 20, 30],
+      [240, 30, 90],
+      [25, 220, 120],
+      [200, 200, 40],
+      [5, 5, 5],
+      [250, 250, 250],
+    ];
+    for (const [r, g, b] of samples) {
+      const [L, A, B] = rgbToLab(r, g, b);
+      const [rr, gg, bb] = labToRgb(L, A, B);
+      assert(approx(r, rr, 3) && approx(g, gg, 3) && approx(b, bb, 3), `roundtrip approx for ${r},${g},${b}`);
+    }
+
+    // 3) Weighted K-means should separate two obvious clusters
+    const pts = [];
+    const wts = [];
+    for (let i = 0; i < 50; i++) { pts.push(rgbToLab(250, 20, 20)); wts.push(1); }
+    for (let i = 0; i < 50; i++) { pts.push(rgbToLab(20, 250, 20)); wts.push(1); }
+    // normalize
+    const sum = wts.reduce((a, b) => a + b, 0);
+    for (let i = 0; i < wts.length; i++) wts[i] /= sum;
+
+    const km = weightedKMeans(pts, wts, 2, 10);
+    assert(km.centroids.length === 2, 'kmeans centroid count');
+
+    // Centroids should be far apart
+    const d = Math.sqrt(labDist2(km.centroids[0], km.centroids[1]));
+    assert(d > 40, 'kmeans centroids far apart');
+
+    // 4) Edge map returns values in [0,1]
+    const luma = new Float32Array(9);
+    luma.set([0,0,0, 0,1,0, 0,0,0]);
+    const e = computeEdgeMap(luma, 3, 3);
+    for (const v of e) assert(v >= 0 && v <= 1.00001, 'edge map normalized range');
+
+    return true;
+  }
+
+  // --- UI wiring ---
+  els.file.addEventListener('change', async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setStatus('Loading uploaded file…');
+    try {
+      const img = await loadFromFile(f);
+      drawToCanvas(img);
+    } catch (err) {
+      setStatus(err.message || String(err), 'err');
+    }
+  });
+
+  els.loadUrl.addEventListener('click', async () => {
+    const u = els.url.value.trim();
+    if (!u) return;
+    setStatus('Loading URL…');
+    try {
+      const img = await loadFromUrl(u);
+      drawToCanvas(img);
+    } catch (err) {
+      setStatus(err.message || String(err), 'err');
+    }
+  });
+
+  els.run.addEventListener('click', () => {
+    try {
+      setStatus('Analyzing…');
+      const { primary, candidates } = extractPrimaryColor();
+      renderSwatches(primary, candidates);
+      lastHex = primary.hex;
+      els.copy.disabled = false;
+      setStatus(`Primary color: ${primary.hex}`, 'ok');
+    } catch (err) {
+      setStatus(err.message || String(err), 'err');
+    }
+  });
+
+  els.copy.addEventListener('click', async () => {
+    if (!lastHex) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(lastHex);
+        setStatus(`Copied ${lastHex}`, 'ok');
+      } else {
+        setStatus('Clipboard API not available. Click the swatch and copy the text.', 'warn');
+      }
+    } catch {
+      setStatus('Could not copy (clipboard permission). Click the swatch and copy the text.', 'warn');
+    }
+  });
+
+  els.selftest.addEventListener('click', () => {
+    try {
+      runSelfTests();
+      setStatus('Self-tests passed ✓ (see console for details)', 'ok');
+      console.log('[Self-tests] passed');
+    } catch (e) {
+      console.error(e);
+      setStatus(e.message || String(e), 'err');
+    }
+  });
+
+  // Drag/drop
+  document.addEventListener('dragover', (e) => { e.preventDefault(); });
+  document.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const f = e.dataTransfer?.files?.[0];
+    if (!f) return;
+    els.file.files = e.dataTransfer.files;
+    els.file.dispatchEvent(new Event('change'));
+  });
+
+  // Avoid cryptic preview errors by surfacing parse/runtime problems.
+  window.addEventListener('error', (ev) => {
+    try { setStatus(`Error: ${ev.message}`, 'err'); } catch {}
+  });
+
+  setStatus('Load an image to begin.', '');
+})();
+</script>
+</body>
+</html>
