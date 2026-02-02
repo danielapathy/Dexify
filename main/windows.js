@@ -14,8 +14,8 @@ module.exports = function createWindows({ rootDir }) {
     }
   })();
 
-  // Default: open DevTools automatically (can be disabled with AUTO_OPEN_DEVTOOLS=false).
-  const shouldOpenDevTools = process.env.AUTO_OPEN_DEVTOOLS !== "false";
+  // Default: DevTools closed (can be enabled with AUTO_OPEN_DEVTOOLS=true).
+  const shouldOpenDevTools = process.env.AUTO_OPEN_DEVTOOLS === "true";
 
   function createMainWindow() {
     const isMac = process.platform === "darwin";

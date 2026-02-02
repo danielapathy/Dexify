@@ -1,14 +1,72 @@
 {
-  "name": "spotify-ui-recreation",
+  "name": "dexify",
+  "productName": "Dexify",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "A Spotify-style desktop music client using Deezer and Deemix",
+  "author": "Daniel Apathy",
   "main": "main.js",
   "scripts": {
     "build:vendor:deezer-sdk": "tsup deemix-main/packages/deezer-sdk/src/index.ts --format esm --platform node --out-dir deemix-main/packages/deezer-sdk/dist --clean --tsconfig tsconfig.vendor.json && node -e \"require('fs').writeFileSync('deemix-main/packages/deezer-sdk/dist/index.js','export * from \\\"./index.mjs\\\";\\n')\"",
     "build:vendor:deemix-lite": "tsup vendor/deemix-lite-entry.ts --format esm --platform node --out-dir vendor/dist --clean --tsconfig tsconfig.vendor.json",
     "build:vendor": "npm run build:vendor:deezer-sdk && npm run build:vendor:deemix-lite",
     "start": "npm run build:vendor && env -u ELECTRON_RUN_AS_NODE electron .",
-    "start:web": "python3 -m http.server 5173"
+    "start:web": "python3 -m http.server 5173",
+    "build:mac": "npm run build:vendor && electron-builder --mac",
+    "build:win": "npm run build:vendor && electron-builder --win",
+    "build:all": "npm run build:vendor && electron-builder --mac --win"
+  },
+  "build": {
+    "appId": "com.dexify.app",
+    "productName": "Dexify",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!tests/**/*",
+      "!.session/**/*",
+      "!.backup*",
+      "!**/*.md",
+      "README.md",
+      "!.git/**/*",
+      "!.DS_Store"
+    ],
+    "mac": {
+      "category": "public.app-category.music",
+      "icon": "icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "icon": "icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   },
   "dependencies": {
     "async": "^3.2.6",
@@ -24,6 +82,7 @@
   },
   "devDependencies": {
     "electron": "^30.0.0",
+    "electron-builder": "^25.1.8",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2"
   }
