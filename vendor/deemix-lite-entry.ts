@@ -13,9 +13,7 @@ import { DEFAULT_SETTINGS } from "@/settings.js";
 async function parseLink(link: string) {
 	if (link.includes("deezer.page.link")) {
 		const { default: got } = await import("got");
-		const response = await got.get(link, {
-			https: { rejectUnauthorized: false },
-		});
+		const response = await got.get(link);
 		link = response.url;
 	}
 

@@ -1,4 +1,5 @@
 const { session } = require("electron");
+const { env } = require("./env");
 
 function parseExtensionDirs(value) {
   return String(value || "")
@@ -9,9 +10,9 @@ function parseExtensionDirs(value) {
 
 async function loadChromeExtensions() {
   const dirs = [
-    ...parseExtensionDirs(process.env.CHROME_EXTENSIONS),
-    ...parseExtensionDirs(process.env.KEYPASS_EXTENSION_DIR),
-    ...parseExtensionDirs(process.env.KEEPASSXC_EXTENSION_DIR),
+    ...parseExtensionDirs(env.CHROME_EXTENSIONS),
+    ...parseExtensionDirs(env.KEYPASS_EXTENSION_DIR),
+    ...parseExtensionDirs(env.KEEPASSXC_EXTENSION_DIR),
   ];
   if (dirs.length === 0) return;
 
@@ -24,4 +25,3 @@ async function loadChromeExtensions() {
 }
 
 module.exports = { parseExtensionDirs, loadChromeExtensions };
-

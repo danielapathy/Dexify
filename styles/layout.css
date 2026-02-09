@@ -195,6 +195,7 @@
 }
 
 .content.is-sidebar-collapsed .library__filters,
+.content.is-sidebar-collapsed .library__filters-rail,
 .content.is-sidebar-collapsed .library__tools {
   display: none;
 }
@@ -215,11 +216,122 @@
   align-items: center;
 }
 
+.library__filters-rail {
+  position: relative;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+}
+
+.library__filters-viewport {
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%;
+}
+
+.library__filters-viewport::-webkit-scrollbar {
+  display: none;
+}
+
 .library__filters {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 0 4px;
+  width: max-content;
+  min-width: 100%;
+}
+
+.library__filters-nav {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.44);
+  color: rgba(255, 255, 255, 0.84);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.92);
+  transition: opacity 150ms ease, transform 180ms ease, background 140ms ease;
+  z-index: 2;
+}
+
+.library__filters-nav:hover {
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.library__filters-rail.is-overflowing .library__filters-nav {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.library__filters-rail.can-scroll-left .library__filters-nav--prev,
+.library__filters-rail.can-scroll-right .library__filters-nav--next {
+  pointer-events: auto;
+}
+
+.library__filters-rail:not(.can-scroll-left) .library__filters-nav--prev,
+.library__filters-rail:not(.can-scroll-right) .library__filters-nav--next {
+  opacity: 0.28;
+}
+
+.library__filters-fade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 36px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease;
+  z-index: 1;
+  display: none;
+}
+
+.library__filters-fade--left {
+  left: 28px;
+  background: linear-gradient(90deg, rgba(12, 12, 12, 0.92) 0%, rgba(12, 12, 12, 0) 100%);
+}
+
+.library__filters-fade--right {
+  right: 28px;
+  background: linear-gradient(270deg, rgba(12, 12, 12, 0.92) 0%, rgba(12, 12, 12, 0) 100%);
+}
+
+.library__filters-rail.can-scroll-left .library__filters-fade--left,
+.library__filters-rail.can-scroll-right .library__filters-fade--right {
+  opacity: 1;
+}
+
+/* True content fade at edges (no black overlay blocks). */
+.library__filters-rail.is-overflowing.can-scroll-left.can-scroll-right .library__filters-viewport {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
+}
+
+.library__filters-rail.is-overflowing.can-scroll-left:not(.can-scroll-right) .library__filters-viewport {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 20px, #000 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 20px, #000 100%);
+}
+
+.library__filters-rail.is-overflowing.can-scroll-right:not(.can-scroll-left) .library__filters-viewport {
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 20px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 20px), transparent 100%);
+}
+
+.library__filters-rail:not(.is-overflowing) .library__filters-viewport {
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 
 .pill {
@@ -316,6 +428,12 @@
   padding: 0;
   opacity: 0;
   pointer-events: none;
+}
+
+.library__tools:not(.is-search-open) .library-search {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 .library__tools:not(.is-search-open) .library-search__iconBtn {
@@ -449,6 +567,23 @@
   position: fixed;
   width: 260px;
   background: rgba(18, 18, 18, 0.96);
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.library-recents-menu.is-opening {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.library-recents-menu.is-closing {
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+}
+
+.library-recents-menu {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
@@ -575,72 +710,6 @@
   margin: 10px 4px;
 }
 
-.content.library-view-compact .library-item__subtitle {
-  display: none;
-}
-
-.content.library-view-compact .library-item {
-  padding-top: 8px;
-  padding-bottom: 8px;
-  grid-template-columns: 1fr;
-  gap: 0;
-}
-
-.content.library-view-compact .library-item .cover {
-  display: none;
-}
-
-.content.library-view-compact-grid .library__list {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  padding: 8px;
-}
-
-.content.library-view-compact-grid .library-item {
-  grid-template-columns: 1fr;
-  grid-template-rows: 1fr;
-  padding: 0;
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-.content.library-view-compact-grid .library-item__meta {
-  display: none;
-}
-
-.content.library-view-compact-grid .library-item .cover--img,
-.content.library-view-compact-grid .library-item .cover--liked {
-  width: 100%;
-  height: 120px;
-}
-
-.content.library-view-default-grid .library__list {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  padding: 8px;
-}
-
-.content.library-view-default-grid .library-item {
-  grid-template-columns: 1fr;
-  grid-template-rows: auto 1fr;
-  gap: 10px;
-  align-items: start;
-  padding: 12px;
-  border-radius: 12px;
-}
-
-.content.library-view-default-grid .library-item .cover--img,
-.content.library-view-default-grid .library-item .cover--liked {
-  width: 100%;
-  height: 140px;
-}
-
-.content.library-view-default-grid .library-item__meta {
-  gap: 2px;
-}
-
 .library__list {
   flex: 1;
   min-height: 0;
@@ -723,9 +792,36 @@
   filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.6));
 }
 
+.cover__playIcon--pause {
+  display: none;
+}
+
+.library-item.is-playing .cover__playIcon--play {
+  display: none;
+}
+
+.library-item.is-playing .cover__playIcon--pause {
+  display: inline-block;
+}
+
 .library-item:hover .cover__play {
   opacity: 1;
   transform: scale(1);
+}
+
+.cover__viz {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+  background: radial-gradient(40px 34px at 50% 50%, rgba(0, 0, 0, 0.24), rgba(0, 0, 0, 0.06) 70%, transparent 100%);
+}
+
+.library-item .cover__viz {
+  display: none;
 }
 
 .cover--liked {

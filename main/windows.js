@@ -1,6 +1,7 @@
 const { BrowserWindow } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
+const { env } = require("./env");
 
 module.exports = function createWindows({ rootDir }) {
   if (!rootDir) throw new Error("createWindows: missing rootDir");
@@ -15,7 +16,7 @@ module.exports = function createWindows({ rootDir }) {
   })();
 
   // Default: DevTools closed (can be enabled with AUTO_OPEN_DEVTOOLS=true).
-  const shouldOpenDevTools = process.env.AUTO_OPEN_DEVTOOLS === "true";
+  const shouldOpenDevTools = env.AUTO_OPEN_DEVTOOLS;
 
   function createMainWindow() {
     const isMac = process.platform === "darwin";
@@ -37,7 +38,34 @@ module.exports = function createWindows({ rootDir }) {
       },
     });
 
-    win.loadFile(path.join(rootDir, "index.html"));
+    const query = (() => {
+      const out = {};
+      const startRouteFromEnv = String(process.env.DEXIFY_START_ROUTE || "").trim();
+      if (startRouteFromEnv) out.startRoute = startRouteFromEnv;
+      const argv = Array.isArray(process.argv) ? process.argv : [];
+      const startRouteArg = argv.find((a) => typeof a === "string" && a.startsWith("--start-route="));
+      if (startRouteArg) {
+        const raw = String(startRouteArg.split("=").slice(1).join("=")).trim();
+        if (raw) out.startRoute = raw;
+      }
+      const openNotifications = argv.some((a) => a === "--open-notifications");
+      if (openNotifications) out.startRoute = "notifications";
+      const openAlbumArg = argv.find((a) => typeof a === "string" && a.startsWith("--open-album="));
+      if (openAlbumArg) {
+        const raw = String(openAlbumArg.split("=").slice(1).join("=")).trim();
+        const n = Number(raw);
+        if (Number.isFinite(n) && n > 0) out.openAlbum = String(Math.trunc(n));
+      }
+      const openArtistArg = argv.find((a) => typeof a === "string" && a.startsWith("--open-artist="));
+      if (openArtistArg) {
+        const raw = String(openArtistArg.split("=").slice(1).join("=")).trim();
+        const n = Number(raw);
+        if (Number.isFinite(n) && n > 0) out.openArtist = String(Math.trunc(n));
+      }
+      return out;
+    })();
+
+    win.loadFile(path.join(rootDir, "index.html"), Object.keys(query).length ? { query } : undefined);
 
     if (shouldOpenDevTools) {
       win.webContents.once("dom-ready", () => {

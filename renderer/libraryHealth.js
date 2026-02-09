@@ -129,32 +129,6 @@ export function wireLibraryHealthCheck() {
       }
     });
 
-    // 4) If we still have missing covers in recents, fetch a few track payloads and patch.
-    // This requires no login, but is rate-limited.
-    if (window.dz?.getTrack) {
-      const missing = (lib.load()?.recentTracks || []).filter((r) => r && !String(r.albumCover || "").trim()).slice(0, 8);
-      for (const r of missing) {
-        const id = toNumId(r?.id);
-        if (!id) continue;
-        try {
-          const res = await window.dz.getTrack({ id });
-          const t = res?.ok && res?.track && typeof res.track === "object" ? res.track : null;
-          if (!t) continue;
-          const cover =
-            String(t?.album?.cover_medium || t?.album?.cover_small || t?.album?.cover || t?.cover || "").trim() || "";
-          if (!cover) continue;
-          lib.mutate((state, { markDirty }) => {
-            const recentTracks = Array.isArray(state.recentTracks) ? state.recentTracks : [];
-            const found = recentTracks.find((x) => Number(x?.id) === id);
-            if (!found) return;
-            if (String(found.albumCover || "").trim()) return;
-            found.albumCover = cover;
-            markDirty();
-          });
-        } catch {}
-      }
-    }
-
     return changed;
   };
 

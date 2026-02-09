@@ -1,0 +1,15 @@
+.content.library-view-compact .library-item__subtitle {
+  display: none;
+}
+
+.content.library-view-compact .library-item {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+
+.content.library-view-compact .library-item .cover {
+  display: none;
+}
+

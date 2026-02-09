@@ -128,13 +128,18 @@ export function wireSearchPopover({
   let isOpen = false;
   let req = 0;
   let blurTimer = null;
+  let debounceTimer = null;
 
   const close = () => {
     if (blurTimer) {
       clearTimeout(blurTimer);
       blurTimer = null;
     }
-    if (!isOpen) return;
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+    req += 1;
     isOpen = false;
     popoverEl.hidden = true;
     listEl.innerHTML = "";
@@ -225,11 +230,10 @@ export function wireSearchPopover({
   };
 
   const debouncedLoad = (() => {
-    let t = null;
     return () => {
-      if (t) clearTimeout(t);
-      t = setTimeout(() => {
-        t = null;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
         void load();
       }, 140);
     };
@@ -246,6 +250,10 @@ export function wireSearchPopover({
       clearTimeout(blurTimer);
       blurTimer = null;
     }
+  });
+
+  window.addEventListener("nav:viewChanged", () => {
+    close();
   });
 
   popoverEl.addEventListener("click", (event) => {

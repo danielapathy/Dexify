@@ -3,12 +3,13 @@ const http = require("node:http");
 
 const { safeJsonParse } = require("./utils");
 const { getAppStateStoragePath } = require("./sessionStorage");
+const { env } = require("./env");
 
 function startSessionWebhook({ getSession }) {
-  const port = Number(process.env.SESSION_WEBHOOK_PORT || 3210);
-  const token = process.env.SESSION_WEBHOOK_TOKEN || "";
-  const exposeArl = process.env.SESSION_WEBHOOK_EXPOSE_ARL === "true";
-  const exposeCookies = process.env.SESSION_WEBHOOK_EXPOSE_COOKIES === "true";
+  const port = env.SESSION_WEBHOOK_PORT;
+  const token = env.SESSION_WEBHOOK_TOKEN;
+  const exposeArl = env.SESSION_WEBHOOK_EXPOSE_ARL;
+  const exposeCookies = env.SESSION_WEBHOOK_EXPOSE_COOKIES;
 
   const requireToken = (req, res) => {
     if (!token) return true;
@@ -78,4 +79,3 @@ function startSessionWebhook({ getSession }) {
 }
 
 module.exports = { startSessionWebhook };
-

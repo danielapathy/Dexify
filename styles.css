@@ -1,9 +1,14 @@
 /* Modular CSS entrypoint.
-   The original monolithic stylesheet is preserved at `styles/monolith.css`. */
+   The original monolithic stylesheet is preserved at `.old/styles/monolith.css`. */
 @import "./styles/base.css";
 @import "./styles/topbar.css";
 @import "./styles/modal.css";
 @import "./styles/layout.css";
+@import "./styles/library/view-compact.css";
+@import "./styles/library/view-compact-grid.css";
+@import "./styles/library/view-default-grid.css";
 @import "./styles/views.css";
+@import "./styles/entity/track-selection.css";
 @import "./styles/player.css";
 @import "./styles/utilities.css";
+@import "./styles/signedOut.css";

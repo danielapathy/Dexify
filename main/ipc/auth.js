@@ -1,4 +1,5 @@
 const { BrowserWindow } = require("electron");
+const { env } = require("../env");
 
 async function readArlFromCookies(electronSession) {
   const cookies = await electronSession.cookies.get({ name: "arl" });
@@ -40,8 +41,16 @@ function registerAuthIpcHandlers({
   extractDeezerAppStateWithArl,
 }) {
   ipcMain.handle("auth:getSession", async () => {
-    await refreshSessionUser();
-    return { hasARL: Boolean(state.sessionState.arl), user: state.sessionUser || null };
+    const hasARL = Boolean(state.sessionState.arl);
+    if (hasARL) {
+      try {
+        // Don't block renderer boot on a slow network call.
+        await Promise.race([refreshSessionUser(), new Promise((resolve) => setTimeout(resolve, 1200))]);
+      } catch {}
+    } else {
+      state.sessionUser = null;
+    }
+    return { ok: true, hasARL, user: state.sessionUser || null };
   });
 
   ipcMain.handle("auth:logout", async () => {
@@ -59,7 +68,7 @@ function registerAuthIpcHandlers({
 
   ipcMain.handle("auth:login", async (event) => {
     const parent = BrowserWindow.fromWebContents(event.sender) || undefined;
-    const loginUrl = process.env.MUSIC_APP_LOGIN_URL || "https://account.deezer.com/en/login/";
+    const loginUrl = env.MUSIC_APP_LOGIN_URL;
 
     if (state.loginPopup && !state.loginPopup.isDestroyed()) {
       try {

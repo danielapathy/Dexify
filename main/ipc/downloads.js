@@ -1,10 +1,13 @@
 const fs = require("node:fs");
-const path = require("node:path");
-
 const { ensureDir, getDownloadsDir } = require("../sessionStorage");
 const { sanitizeDownloadUuid, normalizeDownloadedFilePath, resolvePathFromDeemixObject } = require("../downloadUtils");
 const { findMostRecentDownloadFile, listAudioFiles } = require("../downloadUtils");
 const { createDownloadLibrary, normalizeQuality, toIdString } = require("../downloadLibrary");
+const { env } = require("../env");
+const { createDownloadFetchHelpers } = require("./downloads/fetchHelpers");
+const { createTrackDownloader } = require("./downloads/trackDownloader");
+const { createDownloadUrlHandler } = require("./downloads/downloadUrlHandler");
+const { createMigrateLegacyHandler } = require("./downloads/migrateLegacyHandler");
 
 function createDownloadLogger({ enabled }) {
   const isEnabled = Boolean(enabled);
@@ -17,15 +20,31 @@ function createDownloadLogger({ enabled }) {
 
 function registerDownloadIpcHandlers({ ipcMain, getDzClient, loadVendoredDeemixLite, broadcastDownloadEvent }) {
   const { log } = createDownloadLogger({
-    enabled:
-      process.env.DEBUG_DOWNLOADS === "true" ||
-      process.env.DEBUG_DOWNLOADS === "1" ||
-      process.env.DEBUG_DOWNLOADS === "verbose" ||
-      process.env.NODE_ENV !== "production",
+    enabled: env.DEBUG_DOWNLOADS_ENABLED,
   });
 
   const library = createDownloadLibrary({ downloadsDir: getDownloadsDir() });
   const inFlight = new Map();
+  const activeDownloads = new Map();
+  const cancelledGroupPrefixes = new Set();
+
+  const parseGroupFromPrefix = (uuidPrefixRaw) => {
+    const uuidPrefix = String(uuidPrefixRaw || "").trim();
+    if (!uuidPrefix) return null;
+    let match = uuidPrefix.match(/^album_(\d+)_track_$/);
+    if (match) {
+      const albumId = Number(match[1]);
+      if (!Number.isFinite(albumId) || albumId <= 0) return null;
+      return { kind: "album", groupKey: `album:${albumId}`, groupPrefix: `album_${albumId}_track_`, albumId };
+    }
+    match = uuidPrefix.match(/^playlist_(\d+)_track_$/);
+    if (match) {
+      const playlistId = Number(match[1]);
+      if (!Number.isFinite(playlistId) || playlistId <= 0) return null;
+      return { kind: "playlist", groupKey: `playlist:${playlistId}`, groupPrefix: `playlist_${playlistId}_track_`, playlistId };
+    }
+    return null;
+  };
 
   // Startup health check (non-blocking): re-download missing album cover files for already-downloaded albums.
   // This keeps sidebar/recents artwork consistent even if a previous run failed mid-download.
@@ -36,365 +55,62 @@ function registerDownloadIpcHandlers({ ipcMain, getDzClient, loadVendoredDeemixL
     } catch {}
   }, 900);
 
-  const qualityToBitrate = (quality) => {
-    const q = normalizeQuality(quality);
-    return q === "flac" ? 9 : q === "mp3_320" ? 3 : 1;
-  };
+  const { qualityToBitrate, parseDeezerUrl, safeRmDir, tryFetchAlbumFull, tryFetchPlaylistFull, tryFetchArtistAlbums, tryFetchTrack } =
+    createDownloadFetchHelpers({
+      fs,
+      toIdString,
+      normalizeQuality,
+    });
 
-  const parseDeezerUrl = (url) => {
-    const u = String(url || "").trim();
-    const m = u.match(/deezer\.com\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(track|album|playlist|artist)\/(\d+)/i);
-    if (!m) return null;
-    return { type: String(m[1]).toLowerCase(), id: Number(m[2]) };
-  };
-
-  const safeRmDir = (dirPath) => {
-    try {
-      fs.rmSync(dirPath, { recursive: true, force: true });
-    } catch {}
-  };
-
-  const tryFetchAlbumFull = async (dz, albumId) => {
-    const id = toIdString(albumId);
-    if (!id) return null;
-    if (!dz?.api || typeof dz.api.get_album !== "function") return null;
-    try {
-      const album = await dz.api.get_album(id);
-      if (!album || typeof album !== "object") return null;
-      if (typeof dz.api.get_album_tracks === "function") {
-        try {
-          const tracksRes = await dz.api.get_album_tracks(id, { limit: 1000 });
-          const tracks = Array.isArray(tracksRes?.data)
-            ? tracksRes.data
-            : Array.isArray(album?.tracks?.data)
-              ? album.tracks.data
-              : [];
-          return { ...album, tracks };
-        } catch {
-          return album;
-        }
-      }
-      return album;
-    } catch {
-      return null;
-    }
-  };
-
-  const tryFetchPlaylistFull = async (dz, playlistId) => {
-    const id = toIdString(playlistId);
-    if (!id) return null;
-    if (!dz?.api || typeof dz.api.get_playlist !== "function") return null;
-    try {
-      const playlist = await dz.api.get_playlist(id);
-      if (!playlist || typeof playlist !== "object") return null;
-      if (typeof dz.api.get_playlist_tracks === "function") {
-        try {
-          const tracksRes = await dz.api.get_playlist_tracks(id, { limit: 1000 });
-          const tracks = Array.isArray(tracksRes?.data)
-            ? tracksRes.data
-            : Array.isArray(playlist?.tracks?.data)
-              ? playlist.tracks.data
-              : [];
-          return { ...playlist, tracks };
-        } catch {
-          return playlist;
-        }
-    }
-    return playlist;
-  } catch {
-    return null;
-  }
-  };
-
-  const tryFetchArtistAlbums = async (dz, artistId) => {
-    const id = toIdString(artistId);
-    if (!id) return [];
-    const api = dz?.api;
-    if (!api) return [];
-    const fn = api.get_artist_albums || api.getArtistAlbums || null;
-    if (typeof fn !== "function") return [];
-    try {
-      const res = await fn.call(api, id, { limit: 1000 });
-      const data = Array.isArray(res?.data) ? res.data : Array.isArray(res?.albums?.data) ? res.albums.data : [];
-      return data;
-    } catch {
-      return [];
-    }
-  };
-
-  const tryFetchTrack = async (dz, trackId) => {
-    const id = toIdString(trackId);
-    if (!id) return null;
-    const api = dz?.api;
-    const gw = dz?.gw;
-
-    if (api) {
-      const fn = api.get_track || api.getTrack || null;
-      if (typeof fn === "function") {
-        try {
-          const t = await fn.call(api, id);
-          if (t && typeof t === "object") return t;
-        } catch {
-          /* fall through */
-        }
-      }
-    }
-
-    // Deezer SDK doesn't always expose a `get_track` on `api`, but it does expose GW helpers.
-    // Prefer `get_track_with_fallback`, which normalizes `get_track_page` into `DATA`.
-    if (gw) {
-      const fn = gw.get_track_with_fallback || gw.getTrack || null;
-      if (typeof fn === "function") {
-        try {
-          const t = await fn.call(gw, id);
-          if (t && typeof t === "object") return t;
-        } catch {
-          /* fall through */
-        }
-      }
-
-      const pageFn = gw.get_track_page || null;
-      if (typeof pageFn === "function") {
-        try {
-          const page = await pageFn.call(gw, id);
-          const t = page?.DATA && typeof page.DATA === "object" ? page.DATA : page;
-          if (t && typeof t === "object") return t;
-        } catch {
-          /* fall through */
-        }
-      }
-    }
-
-    return null;
-  };
-
-  const downloadSingleTrack = async ({ dz, trackId, quality, uuid, trackJson, albumJson }) => {
-    const tId = Number(trackId);
-    if (!Number.isFinite(tId) || tId <= 0) return { ok: false, error: "bad_request" };
-
-    const clampQualityForUser = (q0) => {
-      const q = normalizeQuality(q0) || "mp3_128";
-      const user = dz?.currentUser || null;
-      const canHQ = Boolean(user?.can_stream_hq);
-      const canLossless = Boolean(user?.can_stream_lossless);
-      if (q === "flac" && !canLossless) return canHQ ? "mp3_320" : "mp3_128";
-      if (q === "mp3_320" && !canHQ) return "mp3_128";
-      return q;
-    };
-
-    const q = clampQualityForUser(quality);
-    const bitrate = qualityToBitrate(q);
-    const requestedUuid = sanitizeDownloadUuid(uuid);
-    const downloadUuid = requestedUuid || `dl_${tId}_${bitrate}`;
-
-    const inflightKey = `${tId}:${q}`;
-    if (inFlight.has(inflightKey)) return inFlight.get(inflightKey);
-
-    const promise = (async () => {
-      library.ensureLoaded();
-
-      const exactHit = (() => {
-        const res = library.resolveTrack({ trackId: tId, quality: q });
-        if (!res?.ok || !res.exists) return null;
-        return res.quality === q ? res : null;
-      })();
-      if (exactHit) {
-        broadcastDownloadEvent({
-          event: "downloadFinished",
-          data: { uuid: downloadUuid, downloadPath: exactHit.audioPath, fileUrl: exactHit.fileUrl, alreadyDownloaded: true },
-        });
-        return {
-          ok: true,
-          uuid: downloadUuid,
-          downloadPath: exactHit.audioPath,
-          fileUrl: exactHit.fileUrl,
-          alreadyDownloaded: true,
-        };
-      }
-
-      const extractAlbumId = ({ maybeAlbum, maybeTrack }) => {
-        return (
-          toIdString(maybeAlbum?.id) ||
-          toIdString(maybeAlbum?.ALB_ID) ||
-          toIdString(maybeAlbum?.album_id) ||
-          toIdString(maybeAlbum?.ALBUM_ID) ||
-          toIdString(maybeTrack?.album?.id) ||
-          toIdString(maybeTrack?.album?.ALB_ID) ||
-          toIdString(maybeTrack?.album_id) ||
-          toIdString(maybeTrack?.ALB_ID) ||
-          toIdString(maybeTrack?.ALBUM_ID) ||
-          toIdString(maybeTrack?.data?.ALB_ID) ||
-          null
-        );
-      };
-
-      let resolvedTrack = trackJson && typeof trackJson === "object" ? trackJson : null;
-      if (!resolvedTrack) resolvedTrack = await tryFetchTrack(dz, tId);
-      if (!resolvedTrack) return { ok: false, error: "missing_track_metadata" };
-
-      let albumId = extractAlbumId({ maybeAlbum: albumJson, maybeTrack: resolvedTrack });
-      if (!albumId) {
-        const fetched = await tryFetchTrack(dz, tId);
-        if (fetched && typeof fetched === "object") {
-          albumId = extractAlbumId({ maybeAlbum: albumJson, maybeTrack: fetched }) || albumId;
-
-          // Prefer renderer-provided fields when present, but don't drop fetched album identifiers.
-          const merged = { ...fetched, ...resolvedTrack };
-          const resolvedAlbum = resolvedTrack?.album && typeof resolvedTrack.album === "object" ? resolvedTrack.album : null;
-          const resolvedHasAlbumId = Boolean(toIdString(resolvedAlbum?.id) || toIdString(resolvedAlbum?.ALB_ID));
-          if (!resolvedHasAlbumId && fetched?.album && typeof fetched.album === "object") {
-            merged.album = fetched.album;
-          }
-          resolvedTrack = merged;
-        }
-      }
-      if (!albumId) return { ok: false, error: "missing_album_context" };
-
-      const fullAlbum =
-        (albumJson && typeof albumJson === "object" ? albumJson : null) ||
-        (resolvedTrack?.album && typeof resolvedTrack.album === "object" ? resolvedTrack.album : null) ||
-        null;
-      const fetchedAlbum = await tryFetchAlbumFull(dz, albumId);
-      const resolvedAlbum = fetchedAlbum || fullAlbum;
-      if (!resolvedAlbum) return { ok: false, error: "missing_album_metadata" };
-
-      await library.ensureAlbumMetadata({ albumId, albumJson: resolvedAlbum });
-
-      // Legacy adoption:
-      // Previous versions stored downloads as `.session/downloads/track_<id>_<bitrate>/...`.
-      // If such a folder exists, import it into the canonical album-based layout instead of re-downloading.
+  const downloadSingleTrack = createTrackDownloader({
+    library,
+    inFlight,
+    activeDownloads,
+    loadVendoredDeemixLite,
+    broadcastDownloadEvent,
+    getDownloadsDir,
+    ensureDir,
+    sanitizeDownloadUuid,
+    normalizeDownloadedFilePath,
+    resolvePathFromDeemixObject,
+    findMostRecentDownloadFile,
+    listAudioFiles,
+    normalizeQuality,
+    toIdString,
+    qualityToBitrate,
+    safeRmDir,
+    tryFetchTrack,
+    tryFetchAlbumFull,
+  });
+  const handleDownloadUrl = createDownloadUrlHandler({
+    log,
+    getDzClient,
+    parseDeezerUrl,
+    normalizeQuality,
+    toIdString,
+    qualityToBitrate,
+    tryFetchAlbumFull,
+    tryFetchPlaylistFull,
+    tryFetchArtistAlbums,
+    downloadSingleTrack,
+    library,
+    broadcastDownloadEvent,
+    isGroupCancelled: (prefix) => cancelledGroupPrefixes.has(String(prefix || "")),
+    clearGroupCancelled: (prefix) => {
       try {
-        const downloadsRoot = getDownloadsDir();
-        const legacyDir = path.join(downloadsRoot, `track_${tId}_${bitrate}`);
-        if (fs.existsSync(legacyDir) && fs.statSync(legacyDir).isDirectory()) {
-          const adopted = await library.ensureTrackStoredFromStaging({
-            albumId,
-            trackId: tId,
-            quality: q,
-            stagingDir: legacyDir,
-            trackJson: resolvedTrack,
-            albumJson: resolvedAlbum,
-          });
-          if (adopted?.ok && adopted.fileUrl) {
-            safeRmDir(legacyDir);
-            broadcastDownloadEvent({
-              event: "downloadFinished",
-              data: { uuid: downloadUuid, downloadPath: adopted.audioPath, fileUrl: adopted.fileUrl, alreadyDownloaded: true },
-            });
-            return {
-              ok: true,
-              uuid: downloadUuid,
-              downloadPath: adopted.audioPath,
-              fileUrl: adopted.fileUrl,
-              alreadyDownloaded: true,
-            };
-          }
-        }
+        cancelledGroupPrefixes.delete(String(prefix || ""));
       } catch {}
-
-      const deemix = await loadVendoredDeemixLite();
-      const Downloader = deemix?.Downloader;
-      const generateDownloadObject = deemix?.generateDownloadObject;
-      const DEFAULT_SETTINGS = deemix?.DEFAULT_SETTINGS;
-      if (typeof Downloader !== "function" || typeof generateDownloadObject !== "function" || !DEFAULT_SETTINGS) {
-        return { ok: false, error: "deemix_not_available" };
-      }
-
-      const stageDir = library.stageDirForUuid(downloadUuid);
-      safeRmDir(stageDir);
-      ensureDir(stageDir);
-
-      const settings = {
-        ...DEFAULT_SETTINGS,
-        downloadLocation: stageDir + path.sep,
-        maxBitrate: bitrate,
-      };
-
-      let downloadPath = null;
-      const downloadPaths = new Set();
-      const listener = {
-        send: (eventName, data) => {
-          if (data && typeof data === "object" && !Array.isArray(data) && !data.uuid) data.uuid = downloadUuid;
-          const maybePath = data && typeof data === "object" ? data.downloadPath : null;
-          if (typeof maybePath === "string" && maybePath) {
-            downloadPaths.add(maybePath);
-            if (!downloadPath) downloadPath = maybePath;
-          }
-          broadcastDownloadEvent({ event: eventName, data });
-        },
-      };
-
-      try {
-        const link = `https://www.deezer.com/track/${tId}`;
-        const obj = await generateDownloadObject(dz, link, bitrate, {}, listener);
-        if (!obj || typeof obj !== "object") return { ok: false, error: "download_object_failed" };
-
-        obj.uuid = downloadUuid;
-        broadcastDownloadEvent({ event: "downloadRequested", data: { uuid: downloadUuid, id: tId, bitrate } });
-
-        const downloader = new Downloader(dz, obj, settings, listener);
-        await downloader.start();
-
-        if (!downloadPath) downloadPath = resolvePathFromDeemixObject(obj, stageDir + path.sep);
-        if (obj?.files && Array.isArray(obj.files)) {
-          for (const f of obj.files) {
-            if (!f?.path) continue;
-            const p = String(f.path);
-            if (p) downloadPaths.add(p);
-          }
-        }
-
-        const resolvedPaths = [];
-        for (const p of downloadPaths) {
-          const full = normalizeDownloadedFilePath(p, stageDir, stageDir);
-          if (full) resolvedPaths.push(full);
-        }
-        const scanned = listAudioFiles(stageDir);
-        for (const p of scanned) resolvedPaths.push(p);
-        if (resolvedPaths.length > 0 && !downloadPath) downloadPath = resolvedPaths[0];
-        if (!downloadPath) downloadPath = findMostRecentDownloadFile(stageDir);
-
-        const stored = await library.ensureTrackStoredFromStaging({
-          albumId,
-          trackId: tId,
-          quality: q,
-          stagingDir: stageDir,
-          trackJson: resolvedTrack,
-          albumJson: resolvedAlbum,
-        });
-
-        if (!stored?.ok || !stored.fileUrl) {
-          broadcastDownloadEvent({
-            event: "downloadFailed",
-            data: { uuid: downloadUuid, message: "Download produced no usable audio file", debug: { stageDir } },
-          });
-          return { ok: false, error: "download_no_path", uuid: downloadUuid, debug: { stageDir } };
-        }
-
-        broadcastDownloadEvent({
-          event: "downloadFinished",
-          data: { uuid: downloadUuid, downloadPath: stored.audioPath, fileUrl: stored.fileUrl },
-        });
-
-        return { ok: true, uuid: downloadUuid, downloadPath: stored.audioPath, fileUrl: stored.fileUrl };
-      } catch (e) {
-        const message = String(e?.message || e || "download_failed");
-        const stack = typeof e?.stack === "string" ? String(e.stack) : "";
-        const debug = { downloadUuid, stageDir };
-        broadcastDownloadEvent({ event: "downloadFailed", data: { uuid: downloadUuid, message, stack, debug } });
-        return { ok: false, error: "download_failed", message, uuid: downloadUuid, stack, debug };
-      } finally {
-        safeRmDir(stageDir);
-      }
-    })()
-      .finally(() => {
-        inFlight.delete(inflightKey);
-      })
-      .catch((e) => ({ ok: false, error: "download_failed", message: String(e?.message || e) }));
-
-    inFlight.set(inflightKey, promise);
-    return promise;
-  };
+    },
+  });
+  const handleMigrateLegacy = createMigrateLegacyHandler({
+    getDzClient,
+    library,
+    getDownloadsDir,
+    tryFetchTrack,
+    tryFetchAlbumFull,
+    toIdString,
+    safeRmDir,
+  });
 
   ipcMain.handle("dl:resolveTrack", async (_event, payload) => {
     library.ensureLoaded();
@@ -406,6 +122,19 @@ function registerDownloadIpcHandlers({ ipcMain, getDzClient, loadVendoredDeemixL
   ipcMain.handle("dl:listDownloads", async () => {
     library.ensureLoaded();
     return library.listDownloadedTracks();
+  });
+
+  ipcMain.handle("dl:listPlaylists", async () => {
+    library.ensureLoaded();
+    if (typeof library.listDownloadedPlaylists !== "function") return { ok: false, error: "not_supported" };
+    return library.listDownloadedPlaylists();
+  });
+
+  ipcMain.handle("dl:getOfflineTracklist", async (_event, payload) => {
+    library.ensureLoaded();
+    const type = String(payload?.type || "");
+    const id = payload?.id;
+    return library.getOfflineTracklist({ type, id });
   });
 
   ipcMain.handle("dl:scanLibrary", async () => {
@@ -430,74 +159,37 @@ function registerDownloadIpcHandlers({ ipcMain, getDzClient, loadVendoredDeemixL
     library.ensureLoaded();
     const trackId = Number(payload?.id);
     const quality = payload?.quality ? String(payload.quality) : null;
-    return library.removeDownloadForTrack({ trackId, quality, deleteAlbumContainer: true });
+    const res = library.removeDownloadForTrack({ trackId, quality, deleteAlbumContainer: true });
+    try {
+      broadcastDownloadEvent({ event: "libraryChanged", data: { reason: "deleteFromDisk", trackId } });
+    } catch {}
+    return res;
+  });
+
+  ipcMain.handle("dl:deleteAlbumFromDisk", async (_event, payload) => {
+    library.ensureLoaded();
+    const albumId = Number(payload?.id);
+    if (typeof library.deleteAlbumFromDisk !== "function") return { ok: false, error: "not_supported" };
+    const res = library.deleteAlbumFromDisk({ albumId });
+    try {
+      broadcastDownloadEvent({ event: "libraryChanged", data: { reason: "deleteAlbumFromDisk", albumId } });
+    } catch {}
+    return res;
+  });
+
+  ipcMain.handle("dl:deletePlaylistFromDisk", async (_event, payload) => {
+    library.ensureLoaded();
+    const playlistId = Number(payload?.id);
+    if (typeof library.deletePlaylistFromDisk !== "function") return { ok: false, error: "not_supported" };
+    const res = library.deletePlaylistFromDisk({ playlistId });
+    try {
+      broadcastDownloadEvent({ event: "libraryChanged", data: { reason: "deletePlaylistFromDisk", playlistId } });
+    } catch {}
+    return res;
   });
 
   ipcMain.handle("dl:migrateLegacy", async () => {
-    const dzRes = await getDzClient({ requireLogin: true });
-    if (!dzRes.ok) return dzRes;
-
-    library.ensureLoaded();
-
-    const downloadsRoot = getDownloadsDir();
-    let entries = [];
-    try {
-      entries = fs.readdirSync(downloadsRoot, { withFileTypes: true });
-    } catch {
-      entries = [];
-    }
-
-    const legacy = [];
-    for (const ent of entries) {
-      if (!ent.isDirectory()) continue;
-      const m = String(ent.name).match(/^track_(\d+)_(\d+)$/);
-      if (!m) continue;
-      const trackId = Number(m[1]);
-      const bitrate = Number(m[2]);
-      if (!Number.isFinite(trackId) || trackId <= 0) continue;
-      legacy.push({ dir: path.join(downloadsRoot, ent.name), trackId, bitrate });
-    }
-
-    const results = [];
-    for (const item of legacy) {
-      const quality = item.bitrate === 9 ? "flac" : item.bitrate === 3 ? "mp3_320" : "mp3_128";
-      try {
-        const resolvedTrack = await tryFetchTrack(dzRes.dz, item.trackId);
-        if (!resolvedTrack) {
-          results.push({ trackId: item.trackId, ok: false, error: "missing_track_metadata" });
-          continue;
-        }
-        const albumId = toIdString(resolvedTrack?.album?.id) || toIdString(resolvedTrack?.ALB_ID) || null;
-        if (!albumId) {
-          results.push({ trackId: item.trackId, ok: false, error: "missing_album_context" });
-          continue;
-        }
-        const album = await tryFetchAlbumFull(dzRes.dz, albumId);
-        if (!album) {
-          results.push({ trackId: item.trackId, ok: false, error: "missing_album_metadata" });
-          continue;
-        }
-        await library.ensureAlbumMetadata({ albumId, albumJson: album });
-        const adopted = await library.ensureTrackStoredFromStaging({
-          albumId,
-          trackId: item.trackId,
-          quality,
-          stagingDir: item.dir,
-          trackJson: resolvedTrack,
-          albumJson: album,
-        });
-        if (adopted?.ok) {
-          safeRmDir(item.dir);
-          results.push({ trackId: item.trackId, ok: true });
-        } else {
-          results.push({ trackId: item.trackId, ok: false, error: adopted?.error || "adopt_failed" });
-        }
-      } catch (e) {
-        results.push({ trackId: item.trackId, ok: false, error: "adopt_failed", message: String(e?.message || e) });
-      }
-    }
-
-    return { ok: true, migrated: results.filter((r) => r.ok).length, total: results.length, results };
+    return handleMigrateLegacy();
   });
 
   ipcMain.handle("dl:downloadTrack", async (_event, payload) => {
@@ -517,132 +209,56 @@ function registerDownloadIpcHandlers({ ipcMain, getDzClient, loadVendoredDeemixL
   });
 
   ipcMain.handle("dl:downloadUrl", async (_event, payload) => {
-    log("dl:downloadUrl:start", { payload });
-    const url = String(payload?.url || "").trim();
-    if (!url) return { ok: false, error: "bad_request" };
+    return handleDownloadUrl(payload);
+  });
 
-    const parsed = parseDeezerUrl(url);
-    if (!parsed) return { ok: false, error: "bad_request" };
+  ipcMain.handle("dl:cancelDownload", async (_event, payload) => {
+    const uuid = sanitizeDownloadUuid(payload?.uuid);
+    const uuidPrefix = String(payload?.uuidPrefix || "").trim();
+    const targets = [];
 
-    const dzRes = await getDzClient({ requireLogin: true });
-    if (!dzRes.ok) return dzRes;
-
-    const quality = String(payload?.quality || "mp3_128");
-    const q = normalizeQuality(quality) || "mp3_128";
-
-    if (parsed.type === "track") {
-      return downloadSingleTrack({ dz: dzRes.dz, trackId: parsed.id, quality: q, uuid: payload?.uuid || null });
-    }
-
-    if (parsed.type === "album") {
-      const album = await tryFetchAlbumFull(dzRes.dz, parsed.id);
-      if (!album) return { ok: false, error: "album_fetch_failed" };
-      const tracks = Array.isArray(album?.tracks) ? album.tracks : Array.isArray(album?.tracks?.data) ? album.tracks.data : [];
-      const albumId = Number(album?.id || parsed.id);
-      if (!Number.isFinite(albumId) || albumId <= 0) return { ok: false, error: "album_fetch_failed" };
-
-      const results = [];
-      for (const t of tracks) {
-        const id = Number(t?.id);
-        if (!Number.isFinite(id) || id <= 0) continue;
-        const r = await downloadSingleTrack({
-          dz: dzRes.dz,
-          trackId: id,
-          quality: q,
-          uuid: `album_${albumId}_track_${id}_${qualityToBitrate(q)}`,
-          trackJson: t,
-          albumJson: album,
-        });
-        results.push({ trackId: id, ok: Boolean(r?.ok), error: r?.error || null });
-      }
-      return { ok: true, type: "album", albumId, count: results.length, results };
-    }
-
-    if (parsed.type === "playlist") {
-      const playlist = await tryFetchPlaylistFull(dzRes.dz, parsed.id);
-      if (!playlist) return { ok: false, error: "playlist_fetch_failed" };
-      const tracks = Array.isArray(playlist?.tracks) ? playlist.tracks : Array.isArray(playlist?.tracks?.data) ? playlist.tracks.data : [];
-      const playlistId = Number(playlist?.id || parsed.id);
-      if (!Number.isFinite(playlistId) || playlistId <= 0) return { ok: false, error: "playlist_fetch_failed" };
-
-      const trackIds = [];
-      for (const t of tracks) {
-        const id = Number(t?.id);
-        if (!Number.isFinite(id) || id <= 0) continue;
-        trackIds.push(id);
-      }
-      await library.ensurePlaylistMetadata({ playlistId, playlistJson: playlist, trackIds });
-
-      const albumCache = new Map();
-      const getAlbum = async (albumId) => {
-        const key = toIdString(albumId);
-        if (!key) return null;
-        if (albumCache.has(key)) return albumCache.get(key);
-        const full = await tryFetchAlbumFull(dzRes.dz, key);
-        const val = full || null;
-        albumCache.set(key, val);
-        return val;
-      };
-
-      const results = [];
-      for (const t of tracks) {
-        const id = Number(t?.id);
-        if (!Number.isFinite(id) || id <= 0) continue;
-        const albumId = toIdString(t?.album?.id) || toIdString(t?.ALB_ID) || null;
-        const album = albumId ? await getAlbum(albumId) : null;
-        const r = await downloadSingleTrack({
-          dz: dzRes.dz,
-          trackId: id,
-          quality: q,
-          uuid: `playlist_${playlistId}_track_${id}_${qualityToBitrate(q)}`,
-          trackJson: t,
-          albumJson: album || t?.album || null,
-        });
-        results.push({ trackId: id, ok: Boolean(r?.ok), error: r?.error || null });
-      }
-      return { ok: true, type: "playlist", playlistId, count: results.length, results };
-    }
-
-    if (parsed.type === "artist") {
-      const artistId = toIdString(parsed.id);
-      if (!artistId) return { ok: false, error: "artist_fetch_failed" };
-
-      const albums = await tryFetchArtistAlbums(dzRes.dz, artistId);
-      const albumIds = Array.from(
-        new Set(
-          albums
-            .map((a) => Number(a?.id))
-            .filter((id) => Number.isFinite(id) && id > 0),
-        ),
-      );
-      if (albumIds.length === 0) return { ok: false, error: "artist_albums_fetch_failed" };
-
-      const results = [];
-      for (const albumId of albumIds) {
-        const album = await tryFetchAlbumFull(dzRes.dz, albumId);
-        if (!album) {
-          results.push({ albumId, ok: false, error: "album_fetch_failed" });
-          continue;
-        }
-        const tracks = Array.isArray(album?.tracks) ? album.tracks : Array.isArray(album?.tracks?.data) ? album.tracks.data : [];
-        for (const t of tracks) {
-          const id = Number(t?.id);
-          if (!Number.isFinite(id) || id <= 0) continue;
-          const r = await downloadSingleTrack({
-            dz: dzRes.dz,
-            trackId: id,
-            quality: q,
-            uuid: `artist_${artistId}_album_${albumId}_track_${id}_${qualityToBitrate(q)}`,
-            trackJson: t,
-            albumJson: album,
+    if (uuid) {
+      const entry = activeDownloads.get(uuid);
+      if (entry) targets.push(entry);
+    } else if (uuidPrefix) {
+      try {
+        cancelledGroupPrefixes.add(uuidPrefix);
+      } catch {}
+      try {
+        const group = parseGroupFromPrefix(uuidPrefix);
+        if (group) {
+          broadcastDownloadEvent({
+            event: "downloadGroupCancelRequested",
+            data: { ...group, updatedAt: Date.now() },
           });
-          results.push({ albumId, trackId: id, ok: Boolean(r?.ok), error: r?.error || null });
         }
+      } catch {}
+
+      for (const [key, entry] of activeDownloads.entries()) {
+        if (String(key).startsWith(uuidPrefix)) targets.push(entry);
       }
-      return { ok: true, type: "artist", artistId, albums: albumIds.length, count: results.length, results };
     }
 
-    return { ok: false, error: "unsupported_type", type: parsed.type };
+    // If we have no active per-track download objects, a group-cancel can still be meaningful:
+    // the downloadUrl handler checks `cancelledGroupPrefixes` between tracks to stop future work.
+    if (targets.length === 0) return uuidPrefix ? { ok: true, cancelled: 0 } : { ok: false, error: "not_found" };
+
+    for (const entry of targets) {
+      try {
+        if (entry?.downloadObject && typeof entry.downloadObject === "object") entry.downloadObject.isCanceled = true;
+      } catch {}
+      try {
+        broadcastDownloadEvent({
+          event: "downloadCancelRequested",
+          data: {
+            uuid: String(entry?.uuid || ""),
+            id: Number(entry?.trackId) || null,
+          },
+        });
+      } catch {}
+    }
+
+    return { ok: true, cancelled: targets.length };
   });
 }
 

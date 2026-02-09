@@ -59,6 +59,18 @@ export async function extractAverageColorFromImageUrl(url) {
   return await extractPrimaryColorFromImageUrl(url, { maxRes: 220, k: 8, iters: 10, centerBias: true, edgeWeight: true });
 }
 
+export async function extractColorPaletteFromImageUrl(url, { limit = 4 } = {}) {
+  const { extractPaletteColorsFromImageUrl } = await import("./color.js");
+  return await extractPaletteColorsFromImageUrl(url, {
+    maxRes: 220,
+    k: 8,
+    iters: 10,
+    centerBias: true,
+    edgeWeight: true,
+    limit,
+  });
+}
+
 export function formatFansCountText(value) {
   const s = String(value || "");
   if (!s) return "";

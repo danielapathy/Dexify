@@ -3,6 +3,40 @@
 
   const { contextBridge, ipcRenderer } = require("electron");
 
+  const shouldLog = (() => {
+    try {
+      // Logging IPC payloads can be extremely expensive (large objects, frequent progress events).
+      // Keep it opt-in via env flags to avoid janking the renderer during downloads.
+      const debug = String(process.env.DEBUG_IPC || process.env.DEBUG_DOWNLOADS || "").trim();
+      return debug === "true" || debug === "1" || debug === "verbose";
+    } catch {
+      return false;
+    }
+  })();
+
+  const safeLog = (...args) => {
+    if (!shouldLog) return;
+    try {
+      console.log(...args);
+    } catch {}
+  };
+
+  const makeInvokeWithParams = (channel) => async (params) => {
+    const startedAt = Date.now();
+    safeLog(`[dl] invoke ${channel}`, params);
+    const res = await ipcRenderer.invoke(channel, params);
+    safeLog(`[dl] result ${channel}`, { ms: Date.now() - startedAt, res });
+    return res;
+  };
+
+  const makeInvokeNoParams = (channel) => async () => {
+    const startedAt = Date.now();
+    safeLog(`[dl] invoke ${channel}`);
+    const res = await ipcRenderer.invoke(channel);
+    safeLog(`[dl] result ${channel}`, { ms: Date.now() - startedAt, res });
+    return res;
+  };
+
   contextBridge.exposeInMainWorld("auth", {
     login: () => ipcRenderer.invoke("auth:login"),
     logout: () => ipcRenderer.invoke("auth:logout"),
@@ -41,111 +75,24 @@
   });
 
   contextBridge.exposeInMainWorld("dl", {
-    downloadTrack: async (params) => {
-      const startedAt = Date.now();
-      try {
-        console.log("[dl] invoke dl:downloadTrack", params);
-      } catch {}
-      const res = await ipcRenderer.invoke("dl:downloadTrack", params);
-      try {
-        console.log("[dl] result dl:downloadTrack", { ms: Date.now() - startedAt, res });
-      } catch {}
-      return res;
-    },
-    resolveTrack: async (params) => {
-      const startedAt = Date.now();
-      try {
-        console.log("[dl] invoke dl:resolveTrack", params);
-      } catch {}
-      const res = await ipcRenderer.invoke("dl:resolveTrack", params);
-      try {
-        console.log("[dl] result dl:resolveTrack", { ms: Date.now() - startedAt, res });
-      } catch {}
-      return res;
-    },
-    listDownloads: async () => {
-      const startedAt = Date.now();
-      try {
-        console.log("[dl] invoke dl:listDownloads");
-      } catch {}
-      const res = await ipcRenderer.invoke("dl:listDownloads");
-      try {
-        console.log("[dl] result dl:listDownloads", { ms: Date.now() - startedAt, res });
-      } catch {}
-      return res;
-    },
-    scanLibrary: async () => {
-      const startedAt = Date.now();
-      try {
-        console.log("[dl] invoke dl:scanLibrary");
-      } catch {}
-      const res = await ipcRenderer.invoke("dl:scanLibrary");
-      try {
-        console.log("[dl] result dl:scanLibrary", { ms: Date.now() - startedAt, res });
-      } catch {}
-      return res;
-    },
-    healLibrary: async (params) => {
-      const startedAt = Date.now();
-      try {
-        console.log("[dl] invoke dl:healLibrary", params);
-      } catch {}
-      const res = await ipcRenderer.invoke("dl:healLibrary", params);
-      try {
-        console.log("[dl] result dl:healLibrary", { ms: Date.now() - startedAt, res });
-      } catch {}
-      return res;
-    },
-    removeDownload: async (params) => {
-      const startedAt = Date.now();
-      try {
-        console.log("[dl] invoke dl:removeDownload", params);
-      } catch {}
-      const res = await ipcRenderer.invoke("dl:removeDownload", params);
-      try {
-        console.log("[dl] result dl:removeDownload", { ms: Date.now() - startedAt, res });
-      } catch {}
-      return res;
-    },
-    deleteFromDisk: async (params) => {
-      const startedAt = Date.now();
-      try {
-        console.log("[dl] invoke dl:deleteFromDisk", params);
-      } catch {}
-      const res = await ipcRenderer.invoke("dl:deleteFromDisk", params);
-      try {
-        console.log("[dl] result dl:deleteFromDisk", { ms: Date.now() - startedAt, res });
-      } catch {}
-      return res;
-    },
-    migrateLegacy: async () => {
-      const startedAt = Date.now();
-      try {
-        console.log("[dl] invoke dl:migrateLegacy");
-      } catch {}
-      const res = await ipcRenderer.invoke("dl:migrateLegacy");
-      try {
-        console.log("[dl] result dl:migrateLegacy", { ms: Date.now() - startedAt, res });
-      } catch {}
-      return res;
-    },
-    downloadUrl: async (params) => {
-      const startedAt = Date.now();
-      try {
-        console.log("[dl] invoke dl:downloadUrl", params);
-      } catch {}
-      const res = await ipcRenderer.invoke("dl:downloadUrl", params);
-      try {
-        console.log("[dl] result dl:downloadUrl", { ms: Date.now() - startedAt, res });
-      } catch {}
-      return res;
-    },
+    downloadTrack: makeInvokeWithParams("dl:downloadTrack"),
+    resolveTrack: makeInvokeWithParams("dl:resolveTrack"),
+    listDownloads: makeInvokeNoParams("dl:listDownloads"),
+    listPlaylists: makeInvokeNoParams("dl:listPlaylists"),
+    getOfflineTracklist: makeInvokeWithParams("dl:getOfflineTracklist"),
+    scanLibrary: makeInvokeNoParams("dl:scanLibrary"),
+    healLibrary: makeInvokeWithParams("dl:healLibrary"),
+    removeDownload: makeInvokeWithParams("dl:removeDownload"),
+    deleteFromDisk: makeInvokeWithParams("dl:deleteFromDisk"),
+    deleteAlbumFromDisk: makeInvokeWithParams("dl:deleteAlbumFromDisk"),
+    deletePlaylistFromDisk: makeInvokeWithParams("dl:deletePlaylistFromDisk"),
+    migrateLegacy: makeInvokeNoParams("dl:migrateLegacy"),
+    downloadUrl: makeInvokeWithParams("dl:downloadUrl"),
+    cancelDownload: makeInvokeWithParams("dl:cancelDownload"),
     onEvent: (listener) => {
       if (typeof listener !== "function") return () => {};
       const handler = (_event, payload) => {
-        try {
-          console.log("[dl] event", payload);
-        } catch {}
+        safeLog("[dl] event", payload);
         listener(payload);
       };
       ipcRenderer.on("dl:event", handler);

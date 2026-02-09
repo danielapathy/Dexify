@@ -162,9 +162,41 @@ function registerDzIpcHandlers({ ipcMain, state, refreshSessionUser, getDzClient
       const dz = dzRes.dz;
       if (type === "artist") {
         const artist = await dz.api.get_artist(id);
-        const top = await dz.api.get_artist_top(id, { limit: 200 });
+        if (!artist || typeof artist !== "object") return { ok: false, error: "artist_fetch_failed" };
+
+        const safeCall = async (fn, fallback) => {
+          try {
+            return await fn();
+          } catch {
+            return fallback;
+          }
+        };
+
+        const [top, albums, related, radio, playlists] = await Promise.all([
+          safeCall(() => dz.api.get_artist_top(id, { limit: 80 }), null),
+          safeCall(() => dz.api.get_artist_albums(id, { limit: 120 }), null),
+          safeCall(() => dz.api.get_artist_related(id, { limit: 40 }), null),
+          safeCall(() => dz.api.get_artist_radio(id, { limit: 80 }), null),
+          safeCall(() => dz.api.get_artist_playlists(id, { limit: 40 }), null),
+        ]);
+
         const topTracks = Array.isArray(top?.data) ? top.data : [];
-        return { ok: true, data: { ...artist, topTracks } };
+        const albumsList = Array.isArray(albums?.data) ? albums.data : [];
+        const relatedArtists = Array.isArray(related?.data) ? related.data : [];
+        const radioTracks = Array.isArray(radio?.data) ? radio.data : [];
+        const playlistItems = Array.isArray(playlists?.data) ? playlists.data : [];
+
+        return {
+          ok: true,
+          data: {
+            ...artist,
+            topTracks,
+            albums: albumsList,
+            related: relatedArtists,
+            radio: radioTracks,
+            playlists: playlistItems,
+          },
+        };
       }
 
       if (type === "album") {

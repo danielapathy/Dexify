@@ -177,7 +177,7 @@ function weightedKMeansLab(samples, weights, k, iters) {
   return { centers, clusterWeights };
 }
 
-export async function extractPrimaryColorFromImageUrl(
+async function extractColorCandidatesFromImageUrl(
   url,
   {
     maxRes = 220,
@@ -306,12 +306,10 @@ export async function extractPrimaryColorFromImageUrl(
 
   const km = weightedKMeansLab(samples, weights, k, iters);
   if (!km) {
-    return { r: Math.round(avgR / avgW), g: Math.round(avgG / avgW), b: Math.round(avgB / avgW) };
+    return [{ r: Math.round(avgR / avgW), g: Math.round(avgG / avgW), b: Math.round(avgB / avgW), score: 1 }];
   }
 
-  // Pick a cluster that is prominent, colorful, and not extreme light/dark.
-  let bestIdx = 0;
-  let bestScore = -Infinity;
+  const scored = [];
   for (let i = 0; i < km.centers.length; i++) {
     const c = km.centers[i];
     const wgt = km.clusterWeights[i] || 0;
@@ -320,12 +318,38 @@ export async function extractPrimaryColorFromImageUrl(
     const lightPenalty = 1 - clamp01(Math.abs(L - 55) / 55);
     const neutralPenalty = avoidNeutrals ? clamp01(chroma / 22) : 1;
     const score = wgt * (0.35 + 0.65 * clamp01(chroma / 70)) * (0.35 + 0.65 * lightPenalty) * (0.25 + 0.75 * neutralPenalty);
-    if (score > bestScore) {
-      bestScore = score;
-      bestIdx = i;
-    }
+    const [r, g, b] = labToRgb(c[0], c[1], c[2]);
+    scored.push({ r, g, b, score });
   }
 
-  const [r, g, b] = labToRgb(km.centers[bestIdx][0], km.centers[bestIdx][1], km.centers[bestIdx][2]);
-  return { r, g, b };
+  scored.sort((a, b) => Number(b.score) - Number(a.score));
+
+  const unique = [];
+  const tooClose = (a, b) => {
+    const dr = a.r - b.r;
+    const dg = a.g - b.g;
+    const db = a.b - b.b;
+    return dr * dr + dg * dg + db * db < 28 * 28;
+  };
+
+  for (const c of scored) {
+    if (unique.some((x) => tooClose(x, c))) continue;
+    unique.push(c);
+  }
+
+  return unique.length > 0 ? unique : scored;
+}
+
+export async function extractPaletteColorsFromImageUrl(url, options = {}) {
+  const opts = options && typeof options === "object" ? options : {};
+  const limitRaw = Number(opts.limit);
+  const limit = Number.isFinite(limitRaw) ? clamp(Math.round(limitRaw), 1, 8) : 4;
+  const candidates = await extractColorCandidatesFromImageUrl(url, opts);
+  if (!Array.isArray(candidates) || candidates.length === 0) return [];
+  return candidates.slice(0, limit).map((c) => ({ r: Number(c.r) || 0, g: Number(c.g) || 0, b: Number(c.b) || 0 }));
+}
+
+export async function extractPrimaryColorFromImageUrl(url, options = {}) {
+  const colors = await extractPaletteColorsFromImageUrl(url, { ...(options && typeof options === "object" ? options : {}), limit: 1 });
+  return colors[0] || null;
 }

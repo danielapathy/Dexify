@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const path = require("node:path");
 
+app.setName("Dexify");
+
 const { APP_BOOT_AT_MS } = require("./main/constants");
 const { safeJsonParse, fetchJson } = require("./main/utils");
 const createVendoredLoaders = require("./main/vendor");
@@ -28,6 +30,21 @@ const { registerDzIpcHandlers } = require("./main/ipc/dz");
 
 const { loadVendoredDeezerSdk, loadVendoredDeemixLite } = createVendoredLoaders({ rootDir: __dirname });
 const { createMainWindow, createLoginPopup } = createWindows({ rootDir: __dirname });
+
+// Prevent duplicate instances during development/testing.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    try {
+      const win = BrowserWindow.getAllWindows()?.[0];
+      if (!win) return;
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    } catch {}
+  });
+}
 
 app.whenReady().then(async () => {
   await loadChromeExtensions();

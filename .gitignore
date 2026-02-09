@@ -1,11 +1,13 @@
 node_modules/
 dist/
 .DS_Store
-
+*.md
+*.MD
 .backup.*
 .backup
 
 .session/
+.codex/
 
 # Vendored deemix-main build outputs (Option B)
 deemix-main/**/dist/
@@ -14,3 +16,9 @@ deemix-main/**/node_modules/
 deemix-main/.turbo/
 
 vendor/dist/
+tests/
+tests
+.old/
+builds
+scripts
+.*/ 

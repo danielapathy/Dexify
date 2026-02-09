@@ -52,15 +52,44 @@ export function wireAccountMenu() {
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   };
 
-  const setOpen = (open) => {
-    menu.hidden = !open;
-    button.setAttribute("aria-expanded", open ? "true" : "false");
-    if (open) menu.focus?.();
+  // Register with global dropdown system
+  if (!window.__dropdownMenus) window.__dropdownMenus = new Set();
+
+  const closeAllDropdowns = (except) => {
+    for (const closeFunc of window.__dropdownMenus) {
+      if (closeFunc !== except) closeFunc();
+    }
   };
 
-  const isOpen = () => !menu.hidden;
+  let isAnimating = false;
+
+  const setOpen = (open) => {
+    button.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) {
+      menu.hidden = false;
+      menu.classList.add("is-opening");
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          menu.classList.remove("is-opening");
+          menu.focus?.();
+        });
+      });
+    } else {
+      if (menu.hidden) return;
+      isAnimating = true;
+      menu.classList.add("is-closing");
+      setTimeout(() => {
+        menu.classList.remove("is-closing");
+        menu.hidden = true;
+        isAnimating = false;
+      }, 150);
+    }
+  };
+
+  const isOpen = () => !menu.hidden && !isAnimating;
 
   const close = () => setOpen(false);
+  window.__dropdownMenus.add(close);
 
   const setBusy = (busy) => {
     connectBtn.disabled = busy;
@@ -95,7 +124,16 @@ export function wireAccountMenu() {
     statusEl.textContent = String(message || "Login failed");
   };
 
-  button.addEventListener("click", () => setOpen(!isOpen()));
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (isOpen()) {
+      setOpen(false);
+      return;
+    }
+    closeAllDropdowns(close);
+    setOpen(true);
+  });
 
   document.addEventListener("click", (event) => {
     if (!isOpen()) return;
@@ -162,4 +200,3 @@ export function wireAccountMenu() {
     .catch(() => setProfile({ hasARL: false }))
     .finally(() => setBusy(false));
 }
-

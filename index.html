@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Spotify UI Recreation</title>
+    <title>Dexify</title>
     <script>
       (() => {
         const ua = navigator.userAgent || "";
@@ -19,7 +19,11 @@
     <link rel="stylesheet" href="./node_modules/remixicon/fonts/remixicon.css" />
   </head>
   <body>
-    <div class="stage">
+    <div class="boot-splash" id="bootSplash" role="status" aria-label="Loading">
+      <div class="boot-splash__spinner" aria-hidden="true"></div>
+    </div>
+
+    <div class="stage" id="appStage" hidden>
       <div class="window" role="application" aria-label="Spotify UI recreation">
         <header class="topbar">
           <div class="topbar__left">
@@ -138,12 +142,34 @@
                 </div>
               </div>
 
-              <div class="library__filters">
-                <button class="pill is-active" type="button" data-filter="all" aria-pressed="true">All</button>
-                <button class="pill" type="button" data-filter="playlist" aria-pressed="false">Playlists</button>
-                <button class="pill" type="button" data-filter="podcast" aria-pressed="false">Podcasts</button>
-                <button class="pill" type="button" data-filter="album" aria-pressed="false">Albums</button>
-                <button class="pill" type="button" data-filter="artist" aria-pressed="false">Artists</button>
+              <div class="library__filters-rail" data-library-filters-rail>
+                <button
+                  class="library__filters-nav library__filters-nav--prev"
+                  type="button"
+                  data-library-filters-nav="prev"
+                  aria-label="Scroll library filters left"
+                >
+                  <i class="ri-arrow-left-s-line icon" aria-hidden="true"></i>
+                </button>
+                <div class="library__filters-fade library__filters-fade--left" aria-hidden="true"></div>
+                <div class="library__filters-fade library__filters-fade--right" aria-hidden="true"></div>
+                <div class="library__filters-viewport" data-library-filters-viewport>
+                  <div class="library__filters">
+                    <button class="pill is-active" type="button" data-filter="all" aria-pressed="true">All</button>
+                    <button class="pill" type="button" data-filter="playlist" aria-pressed="false">Playlists</button>
+                    <button class="pill" type="button" data-filter="podcast" aria-pressed="false">Podcasts</button>
+                    <button class="pill" type="button" data-filter="album" aria-pressed="false">Albums</button>
+                    <button class="pill" type="button" data-filter="artist" aria-pressed="false">Artists</button>
+                  </div>
+                </div>
+                <button
+                  class="library__filters-nav library__filters-nav--next"
+                  type="button"
+                  data-library-filters-nav="next"
+                  aria-label="Scroll library filters right"
+                >
+                  <i class="ri-arrow-right-s-line icon" aria-hidden="true"></i>
+                </button>
               </div>
 
               <div class="library__tools">
@@ -178,12 +204,12 @@
                   </div>
                   <div class="library-item__meta">
                     <div class="library-item__title">Liked Songs</div>
-                    <div class="library-item__subtitle">
-                      <i class="ri-pushpin-fill pin-icon" aria-hidden="true"></i>
-                      Playlist • 189 songs
-                    </div>
-                  </div>
-                </a>
+	                    <div class="library-item__subtitle">
+	                      <i class="ri-pushpin-fill pin-icon" aria-hidden="true"></i>
+	                      Playlist • 189 tracks
+	                    </div>
+	                  </div>
+	                </a>
 
                 <a class="library-item" href="#" role="listitem" data-category="playlist" data-route="downloads">
                   <div class="cover cover--downloads" aria-hidden="true">
@@ -191,12 +217,12 @@
                   </div>
                   <div class="library-item__meta">
                     <div class="library-item__title">Downloads</div>
-                    <div class="library-item__subtitle">
-                      <i class="ri-pushpin-fill pin-icon" aria-hidden="true"></i>
-                      Offline • 0 songs
-                    </div>
-                  </div>
-                </a>
+	                    <div class="library-item__subtitle">
+	                      <i class="ri-pushpin-fill pin-icon" aria-hidden="true"></i>
+	                      Offline • 0 tracks
+	                    </div>
+	                  </div>
+	                </a>
 
                 <a class="library-item" href="#" role="listitem" data-category="playlist">
                   <img class="cover cover--img" alt="" src="https://picsum.photos/seed/my-playlist/96/96" />
@@ -275,6 +301,32 @@
                   <div id="deezerSections" data-deezer-sections></div>
                 </div>
 
+                <div id="mainViewSignedOut" data-view="signedOut" hidden>
+                  <section class="signed-out-view" aria-label="Dexify welcome">
+                    <span class="signed-out-view__glow signed-out-view__glow--a" aria-hidden="true"></span>
+                    <span class="signed-out-view__glow signed-out-view__glow--b" aria-hidden="true"></span>
+
+                    <div class="signed-out-view__content">
+                      <h1 class="signed-out-view__title">Welcome to Dexify</h1>
+                      <p class="signed-out-view__subtitle">
+                        Log in to search for new music, stream your favorites, download tracks for offline listening, and get
+                        personalized recommendations made for you.
+                      </p>
+
+                      <div class="signed-out-view__actions">
+                        <button class="signed-out-view__btn signed-out-view__btn--primary" id="signedOutViewLoginBtn" type="button">
+                          Login
+                        </button>
+                        <button class="signed-out-view__btn signed-out-view__btn--secondary" id="signedOutViewOfflineBtn" type="button" hidden>
+                          Continue offline
+                        </button>
+                      </div>
+
+                      <div class="signed-out-view__status" id="signedOutViewStatus" aria-live="polite"></div>
+                    </div>
+                  </section>
+                </div>
+
                 <div id="mainViewSearch" data-view="search" hidden>
                   <div class="search-view__header">
                     <div class="search-view__title">Search</div>
@@ -282,7 +334,7 @@
                   </div>
                   <div class="search-view__filters" role="tablist" aria-label="Search filters">
                     <button class="pill is-active" type="button" data-search-filter="all" aria-selected="true">All</button>
-                    <button class="pill" type="button" data-search-filter="track" aria-selected="false">Songs</button>
+                    <button class="pill" type="button" data-search-filter="track" aria-selected="false">Tracks</button>
                     <button class="pill" type="button" data-search-filter="album" aria-selected="false">Albums</button>
                     <button class="pill" type="button" data-search-filter="artist" aria-selected="false">Artists</button>
                     <button class="pill" type="button" data-search-filter="playlist" aria-selected="false">Playlists</button>
@@ -292,6 +344,10 @@
 
                 <div id="mainViewEntity" data-view="entity" hidden>
                   <div id="entityView" class="entity-view" aria-live="polite"></div>
+                </div>
+
+                <div id="mainViewNotifications" data-view="notifications" hidden>
+                  <div id="notificationsView" class="notifications-view" aria-live="polite"></div>
                 </div>
 
 	                <div id="mainViewSettings" data-view="settings" hidden>

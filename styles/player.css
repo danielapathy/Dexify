@@ -319,6 +319,22 @@
   text-overflow: clip;
 }
 
+.player__cover {
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+
+.player__cover:hover {
+  transform: scale(1.03);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.55);
+}
+
+.player__title:hover,
+.player__artist:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .player__center {
   display: grid;
   place-items: center;
@@ -410,4 +426,13 @@
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.volume.is-muted .range--vol {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.volume.is-muted .icon-btn {
+  color: rgba(255, 255, 255, 0.5);
 }

@@ -3,10 +3,33 @@ const path = require("node:path");
 const fs = require("node:fs");
 const crypto = require("node:crypto");
 
+const { safeJsonParse } = require("./utils");
+const { env } = require("./env");
+
 function getSessionDir() {
-  if (process.env.SESSION_DIR) return process.env.SESSION_DIR;
+  if (env.SESSION_DIR) return env.SESSION_DIR;
   if (app.isPackaged) return app.getPath("userData");
-  return path.join(process.cwd(), ".session");
+
+  // In development, prefer the project root (electron can be launched with cwd="/"
+  // when started via LaunchServices). Use argv[1] when it points at the project.
+  const looksLikeProjectRoot = (candidate) => {
+    const p = typeof candidate === "string" ? candidate.trim() : "";
+    if (!p) return null;
+    const abs = path.resolve(p);
+    try {
+      return fs.existsSync(path.join(abs, "package.json")) ? abs : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const fromArgv = looksLikeProjectRoot(process.argv?.[1]);
+  const fromCwd = looksLikeProjectRoot(process.cwd());
+  const base = fromArgv || fromCwd;
+  if (base) return path.join(base, ".session");
+
+  // Last resort: writable per-user location.
+  return path.join(app.getPath("userData"), "dev-session");
 }
 
 function getArlStoragePath() {
@@ -114,14 +137,6 @@ function extractArlFromStoredCookies(cookies) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function safeJsonParse(text) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
 function loadSession() {
   try {
     const raw = fs.readFileSync(getArlStoragePath(), "utf8");
@@ -187,4 +202,3 @@ module.exports = {
   isValidArl,
   extractArlFromStoredCookies,
 };
-
