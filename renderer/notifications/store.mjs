@@ -372,6 +372,15 @@ export function createNotificationsStore({
     if (meta?.artist) next.artist = String(meta.artist);
     if (meta?.cover) next.cover = String(meta.cover);
 
+    // Stamp group plan metadata onto individual track members so persisted
+    // history retains correct album/playlist names instead of raw IDs.
+    const planForMember = next.groupKey ? groupPlans.get(next.groupKey) : null;
+    if (planForMember) {
+      if (!next.albumTitle && planForMember.albumTitle) next.albumTitle = String(planForMember.albumTitle);
+      if (!next.artist && planForMember.artist) next.artist = String(planForMember.artist);
+      if (!next.cover && planForMember.cover) next.cover = String(planForMember.cover);
+    }
+
     if (event === "downloadRequested") {
       next.status = "queued";
       next.progress = 0;
@@ -654,20 +663,22 @@ export function createNotificationsStore({
 	      const firstWithMeta =
 	        members.find((m) => (m?.albumTitle || m?.cover || m?.artist || m?.title) && typeof m === "object") || members[0] || plan || {};
 	      const planTitle = String(plan?.title || "").trim();
+	      const planAlbumTitle = String(plan?.albumTitle || "").trim();
 	      const planCover = String(plan?.cover || "").trim();
-	      const albumTitle = String(firstWithMeta?.albumTitle || "").trim();
+	      const planArtist = String(plan?.artist || "").trim();
+	      const memberAlbumTitle = String(firstWithMeta?.albumTitle || "").trim();
 	      const memberCover = String(firstWithMeta?.cover || "").trim();
+	      const memberArtist = String(firstWithMeta?.artist || "").trim();
+	      const albumTitle = planAlbumTitle || memberAlbumTitle;
 	      const cover = card.kind === "playlist" ? planCover || memberCover : memberCover || planCover;
-	      const artist = String(firstWithMeta?.artist || "").trim();
+	      const artist = planArtist || memberArtist;
 	      const albumId = Number.isFinite(Number(card.albumId)) ? Number(card.albumId) : null;
 	      const playlistId = Number.isFinite(Number(card.playlistId)) ? Number(card.playlistId) : null;
 
 	      const title =
 	        card.kind === "album"
-	          ? albumTitle || (albumId ? `Album #${albumId}` : "Album")
-	          : playlistId
-	            ? planTitle || `Playlist #${playlistId}`
-	            : "Playlist";
+	          ? planAlbumTitle || albumTitle || (albumId ? `Album #${albumId}` : "Album")
+	          : planTitle || (playlistId ? `Playlist #${playlistId}` : "Playlist");
 
 	      card.updatedAt = maxUpdatedAt || card.updatedAt || Number(plan?.startedAt) || Date.now();
 	      if (!card.sortAt) card.sortAt = Number(plan?.startedAt) || card.updatedAt || Date.now();

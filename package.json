@@ -57,18 +57,15 @@
       "!.old/**/*",
       "!.windsurf/**/*"
     ],
-    "publish": {
-      "provider": "github",
-      "owner": "danielapathy",
-      "repo": "Dexify"
-    },
+    "publish": null,
     "mac": {
       "category": "public.app-category.music",
       "icon": "icon.png",
       "target": [
         { "target": "dmg", "arch": ["x64", "arm64"] },
         { "target": "zip", "arch": ["x64", "arm64"] }
-      ]
+      ],
+      "electronUpdaterCompatibility": ">= 2.16"
     },
     "win": {
       "icon": "icon.png",
@@ -78,7 +75,8 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Dexify-Setup-${version}.${ext}"
     },
     "linux": {
       "icon": "icon.png",
