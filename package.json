@@ -2,7 +2,7 @@
   "name": "dexify",
   "productName": "Dexify",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A Spotify-style desktop music client using Deezer and Deemix",
   "author": "Daniel Apathy",
   "main": "main.js",
