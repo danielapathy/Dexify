@@ -25,7 +25,7 @@ jobs:
         run: npm run build:vendor
 
       - name: Build macOS (dmg + zip)
-        run: npx electron-builder --config build/electron-builder.json --mac
+        run: npx electron-builder --mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -54,7 +54,7 @@ jobs:
         run: npm run build:vendor
 
       - name: Build Windows (nsis)
-        run: npx electron-builder --config build/electron-builder.json --win
+        run: npx electron-builder --win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -81,7 +81,7 @@ jobs:
         run: npm run build:vendor
 
       - name: Build Linux (AppImage + deb)
-        run: npx electron-builder --config build/electron-builder.json --linux
+        run: npx electron-builder --linux
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -106,18 +106,13 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Extract release notes from RELEASES.md
+      - name: Generate release notes
         id: notes
         run: |
           TAG="${GITHUB_REF_NAME}"
-          VERSION="${TAG#v}"
-          # Extract the section for this version from RELEASES.md
-          NOTES=$(awk "/^## v${VERSION}/,/^## v[0-9]/" build/RELEASES.md | head -n -1 | tail -n +2)
-          if [ -z "$NOTES" ]; then
-            NOTES="Release ${TAG}"
-          fi
-          # Write to file for the release body
-          echo "$NOTES" > release_notes.txt
+          echo "Release ${TAG}" > release_notes.txt
+          echo "" >> release_notes.txt
+          echo "Automated build for ${TAG} — macOS, Windows, and Linux." >> release_notes.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

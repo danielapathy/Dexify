@@ -2,7 +2,7 @@
   "name": "dexify",
   "productName": "Dexify",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A Spotify-style desktop music client using Deezer and Deemix",
   "author": "Daniel Apathy",
   "main": "main.js",
@@ -12,10 +12,10 @@
     "build:vendor": "npm run build:vendor:deezer-sdk && npm run build:vendor:deemix-lite",
     "start": "npm run build:vendor && env -u ELECTRON_RUN_AS_NODE electron .",
     "start:web": "python3 -m http.server 5173",
-    "build:mac": "npm run build:vendor && electron-builder --config build/electron-builder.json --mac",
-    "build:win": "npm run build:vendor && electron-builder --config build/electron-builder.json --win",
-    "build:linux": "npm run build:vendor && electron-builder --config build/electron-builder.json --linux",
-    "build:all": "npm run build:vendor && electron-builder --config build/electron-builder.json --mac --win --linux",
+    "build:mac": "npm run build:vendor && electron-builder --mac",
+    "build:win": "npm run build:vendor && electron-builder --win",
+    "build:linux": "npm run build:vendor && electron-builder --linux",
+    "build:all": "npm run build:vendor && electron-builder --mac --win --linux",
     "test": "node --test tests/*.test.js"
   },
   "dependencies": {
@@ -35,5 +35,58 @@
     "electron-builder": "^25.1.8",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2"
+  },
+  "build": {
+    "appId": "com.dexify.app",
+    "productName": "Dexify",
+    "directories": {
+      "output": "build/artifacts"
+    },
+    "files": [
+      "**/*",
+      "!build/**/*",
+      "!dist/**/*",
+      "!tests/**/*",
+      "!docs/**/*",
+      "!.session/**/*",
+      "!.backup*",
+      "!**/*.md",
+      "!.git/**/*",
+      "!.github/**/*",
+      "!.DS_Store",
+      "!.old/**/*",
+      "!.windsurf/**/*"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "danielapathy",
+      "repo": "Dexify"
+    },
+    "mac": {
+      "category": "public.app-category.music",
+      "icon": "icon.png",
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] },
+        { "target": "zip", "arch": ["x64", "arm64"] }
+      ]
+    },
+    "win": {
+      "icon": "icon.png",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "icon": "icon.png",
+      "category": "Audio",
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb", "arch": ["x64"] }
+      ]
+    }
   }
 }
