@@ -103,24 +103,17 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Generate release notes
+      - name: Extract release notes from tag
         id: notes
         run: |
           TAG="${GITHUB_REF_NAME}"
-          PREV_TAG=$(git tag --sort=-v:refname | grep -A1 "^${TAG}$" | tail -1)
-          echo "## ${TAG}" > release_notes.txt
-          echo "" >> release_notes.txt
-          if [ "${PREV_TAG}" != "${TAG}" ] && [ -n "${PREV_TAG}" ]; then
-            echo "### Changes since ${PREV_TAG}" >> release_notes.txt
-            git log "${PREV_TAG}..${TAG}" --pretty=format:"- %s" --no-merges >> release_notes.txt
+          git fetch --tags --force
+          TAG_MSG=$(git tag -l --format='%(contents)' "${TAG}")
+          if [ -n "${TAG_MSG}" ]; then
+            echo "${TAG_MSG}" > release_notes.txt
           else
-            echo "### Changes" >> release_notes.txt
-            git log "${TAG}" --pretty=format:"- %s" --no-merges >> release_notes.txt
+            echo "Release ${TAG}" > release_notes.txt
           fi
-          echo "" >> release_notes.txt
-          echo "" >> release_notes.txt
-          echo "---" >> release_notes.txt
-          echo "Built for macOS (dmg + zip), Windows (nsis), and Linux (AppImage + deb)." >> release_notes.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
