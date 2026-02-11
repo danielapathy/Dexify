@@ -2,9 +2,9 @@
   "name": "dexify",
   "productName": "Dexify",
   "private": true,
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "A Spotify-style desktop music client using Deezer and Deemix",
-  "author": "Daniel Apathy",
+  "author": { "name": "Daniel Apathy", "email": "danielapathy@users.noreply.github.com" },
   "main": "main.js",
   "scripts": {
     "build:vendor:deezer-sdk": "tsup deemix-main/packages/deezer-sdk/src/index.ts --format esm --platform node --out-dir deemix-main/packages/deezer-sdk/dist --clean --tsconfig tsconfig.vendor.json && node -e \"require('fs').writeFileSync('deemix-main/packages/deezer-sdk/dist/index.js','export * from \\\"./index.mjs\\\";\\n')\"",
