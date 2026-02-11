@@ -9,13 +9,21 @@
     "!build/**/*",
     "!dist/**/*",
     "!tests/**/*",
+    "!docs/**/*",
     "!.session/**/*",
     "!.backup*",
     "!**/*.md",
-    "README.md",
     "!.git/**/*",
-    "!.DS_Store"
+    "!.github/**/*",
+    "!.DS_Store",
+    "!.old/**/*",
+    "!.windsurf/**/*"
   ],
+  "publish": {
+    "provider": "github",
+    "owner": "danielapathy",
+    "repo": "Dexify"
+  },
   "mac": {
     "category": "public.app-category.music",
     "icon": "icon.png",
@@ -42,6 +50,20 @@
   "nsis": {
     "oneClick": false,
     "allowToChangeInstallationDirectory": true
+  },
+  "linux": {
+    "icon": "icon.png",
+    "category": "Audio",
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": ["x64"]
+      },
+      {
+        "target": "deb",
+        "arch": ["x64"]
+      }
+    ]
   }
 }
 

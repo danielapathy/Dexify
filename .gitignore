@@ -6,7 +6,7 @@ dist/
 !build/RELEASES.md
 .backup.*
 .backup
-
+build
 .session/
 .codex/
 
@@ -23,5 +23,6 @@ tests
 builds
 scripts
 .*/ 
+!.github/
 
 build/artifacts/

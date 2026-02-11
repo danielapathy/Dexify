@@ -14,7 +14,8 @@
     "start:web": "python3 -m http.server 5173",
     "build:mac": "npm run build:vendor && electron-builder --config build/electron-builder.json --mac",
     "build:win": "npm run build:vendor && electron-builder --config build/electron-builder.json --win",
-    "build:all": "npm run build:vendor && electron-builder --config build/electron-builder.json --mac --win",
+    "build:linux": "npm run build:vendor && electron-builder --config build/electron-builder.json --linux",
+    "build:all": "npm run build:vendor && electron-builder --config build/electron-builder.json --mac --win --linux",
     "test": "node --test tests/*.test.js"
   },
   "dependencies": {
