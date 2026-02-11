@@ -40,10 +40,16 @@ export function createDownloadPlayback({
 
     const qualityKey = String(quality || "").toLowerCase();
 
+    const playCtx = state.playContext && typeof state.playContext === "object" ? state.playContext : null;
+    const playCtxType = String(playCtx?.type || "").trim().toLowerCase();
+    // In playlist context, __missing means "not downloaded for this playlist"
+    // even if the same track exists in another local context.
+    const forcePlaylistLocalFetch = playCtxType === "playlist" && Boolean(track?.__missing);
     // Check if renderer still considers this track as having a local download.
     // After removeDownloadedTrack clears state, this is false — causing us to skip
     // stale local resolution paths (resolveTrack, cache) and download fresh.
     const isTrackedAsDownloaded = (() => {
+      if (forcePlaylistLocalFetch) return false;
       try {
         const s = lib.load?.() || {};
         const dlEntry = s.downloadedTracks?.[String(trackId)];
@@ -150,7 +156,6 @@ export function createDownloadPlayback({
     }
 
     const bitrate = qualityKey === "flac" ? 9 : qualityKey === "mp3_320" ? 3 : 1;
-    const playCtx = state.playContext && typeof state.playContext === "object" ? state.playContext : null;
     const ctxType = String(playCtx?.type || "").trim().toLowerCase();
     const ctxId = Number(playCtx?.id);
     const hasPlaylistCtx = ctxType === "playlist" && Number.isFinite(ctxId) && ctxId > 0;

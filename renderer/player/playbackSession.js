@@ -133,7 +133,16 @@ export function createPlaybackSession({
 
     audio.src = src;
     audio.currentTime = 0;
-    setNowPlayingUI(track);
+    // When playing from a playlist context, show the playlist cover in the player
+    // instead of the track's album cover.  The actual album cover is still shown
+    // next to the track name inside the playlist track list (entity renderer).
+    const playCtx = state.playContext && typeof state.playContext === "object" ? state.playContext : null;
+    const playCtxType = String(playCtx?.type || "").trim().toLowerCase();
+    const playCtxCover = String(playCtx?.cover || "").trim();
+    const uiTrack = playCtxType === "playlist" && playCtxCover
+      ? { ...track, cover: playCtxCover }
+      : track;
+    setNowPlayingUI(uiTrack);
     persistPlayback(true, startTime);
     if (Number.isFinite(startTime) && startTime > 0) {
       const floored = Math.floor(startTime);

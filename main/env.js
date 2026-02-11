@@ -7,6 +7,11 @@ function parseBooleanStrict(value) {
   return String(value || "").trim().toLowerCase() === "true";
 }
 
+function parseBooleanLoose(value) {
+  const v = String(value || "").trim().toLowerCase();
+  return v === "true" || v === "1";
+}
+
 function parsePort(value, fallback) {
   const raw = typeof value === "string" ? value.trim() : "";
   if (!raw) return fallback;
@@ -47,6 +52,9 @@ function readEnvFrom(source) {
     CHROME_EXTENSIONS: readNonEmptyString(source?.CHROME_EXTENSIONS) || "",
     KEYPASS_EXTENSION_DIR: readNonEmptyString(source?.KEYPASS_EXTENSION_DIR) || "",
     KEEPASSXC_EXTENSION_DIR: readNonEmptyString(source?.KEEPASSXC_EXTENSION_DIR) || "",
+
+    // Debug/automation (opt-in)
+    DEXIFY_UI_DEBUG: parseBooleanLoose(source?.DEXIFY_UI_DEBUG),
   };
 }
 
@@ -56,6 +64,6 @@ module.exports = {
   env,
   readEnvFrom,
   parseBooleanStrict,
+  parseBooleanLoose,
   parsePort,
 };
-

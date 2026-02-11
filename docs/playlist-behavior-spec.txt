@@ -1,0 +1,1063 @@
+================================================================================
+PLAYLIST BEHAVIOR SPECIFICATION & ROOT CAUSE ANALYSIS
+================================================================================
+
+================================================================================
+SECTION 1: EXPECTED BEHAVIOR (USER REQUIREMENTS)
+================================================================================
+
+1.1 FILE STRUCTURE ON DISK
+--------------------------
+When downloading tracks from a playlist, the on-disk layout should be:
+
+  library/
+    playlists/
+      {playlistId}/
+        playlist.json          -- playlist metadata (title, cover, tracks list)
+        items.json             -- trackIds + downloads map
+        tracks/
+          {trackId}/
+            {quality}/
+              audio.mp3|flac   -- the actual audio file
+              track.json       -- track metadata
+    albums/
+      {albumId}/
+        album.json             -- album metadata
+        cover.jpg              -- album cover art
+        tracks/
+          {trackId}/
+            {quality}/
+              audio.mp3|flac
+              track.json
+
+Key principle: Tracks downloaded via a playlist are stored BOTH in the
+album canonical location AND mirrored into the playlist's tracks/ directory.
+This allows playlist tracks to survive album deletions and vice versa.
+Duplicates are acceptable and expected.
+
+1.2 YOUR LIBRARY SIDEBAR BEHAVIOR
+----------------------------------
+A playlist appears in "Your Library" when:
+  - It has at least one downloaded track with audio on disk
+
+A playlist is REMOVED from "Your Library" ONLY when:
+  - ALL of its downloaded tracks have been deleted (zero local audio files remain)
+  - NOT when a single track is deleted while others remain
+
+When a track from a playlist is PLAYED:
+  - The PLAYLIST (not the individual track's album) gets bumped to the top
+    of "Your Library" recency sort
+  - The playlist row shows the playlist cover art, not the track's album art
+
+1.3 DELETION SCENARIOS
+-----------------------
+There are 3 deletion methods. Expected behavior for each:
+
+A) RIGHT-CLICK > "Delete download" (single track from Downloads page)
+   - Deletes the track's audio file from the album directory
+   - Deletes the track's mirror from any playlist directories
+   - Removes track from db.tracks
+   - Removes trackId from db.playlists[pid].trackIds
+   - Removes trackId from items.json trackIds + downloads
+   - IF the playlist still has OTHER downloaded tracks:
+     * Playlist STAYS in Your Library (no change)
+     * Playlist directory on disk STAYS
+     * db.playlists entry STAYS
+   - IF the playlist has ZERO remaining downloaded tracks:
+     * Playlist is removed from Your Library
+     * Playlist directory can be cleaned up
+     * db.playlists entry can be removed
+
+B) MULTI-SELECT > "Delete tracks from library" (from playlist/album page)
+   - Same as (A) but for each selected track
+   - After all deletions, check if playlist still has remaining tracks
+   - Same conditional removal logic as (A)
+
+C) RIGHT-CLICK on playlist card > "Delete from library"
+   - Deletes ALL tracks belonging to this playlist
+   - Removes the playlist directory from disk
+   - Removes db.playlists entry
+   - Removes playlist from Your Library (savedCollections)
+   - Tracks that belong to other contexts (albums) should still be playable
+     from those contexts
+
+1.4 PLAYBACK BEHAVIOR
+-----------------------
+When playing a track that belongs to a playlist:
+  - Player bottom-left cover art: shows PLAYLIST cover (not album cover)
+  - Recents on dashboard: shows PLAYLIST cover (not album cover)
+  - Inside the playlist track list: shows the track's ACTUAL album cover
+    next to the track name
+  - The playlist gets bumped to top of Your Library (not the album)
+  - The track plays from the playlist mirror audio file if available,
+    otherwise from the album canonical file
+
+1.5 RE-DOWNLOAD AFTER DELETE
+------------------------------
+If a user deletes a playlist from library, then navigates back to the
+playlist page and plays/downloads a track:
+  - The playlist should be re-added to Your Library
+  - The track should be freshly downloaded (not played from stale cache)
+  - No "double" listing of the same playlist should appear
+
+================================================================================
+SECTION 2: CURRENT CODEBASE ARCHITECTURE MAP
+================================================================================
+
+2.1 DATA LAYERS
+----------------
+There are TWO separate data stores that must stay in sync:
+
+LAYER 1: Main Process DB (source of truth for files on disk)
+  File: main/downloadLibrary.js -> db.json
+  Contains: db.tracks, db.albums, db.playlists
+  Tracks actual audio files on disk
+
+LAYER 2: Renderer LocalStorage (UI state)
+  File: renderer/localLibrary.js -> localStorage "spotify.localLibrary.v1"
+  Contains: savedTracks, downloadedTracks, savedAlbums, playlists, recentTracks
+  Drives sidebar rendering and UI state
+
+These two layers can get OUT OF SYNC, which is a root cause of many bugs.
+
+2.2 DELETION CODE PATHS
+-------------------------
+
+PATH 1: Single track delete (right-click "Delete download")
+  Renderer: menuBuilders.js line 223-258
+    -> window.dl.deleteFromDisk({ id: trackId })
+    -> window.dl.scanLibrary()
+    -> lib.removeDownloadedTrack(trackId)
+    -> reconcileSavedEntitiesAfterTrackDelete({ albumId, playlistIds })
+
+  Main: ipc/downloads.js "dl:deleteFromDisk"
+    -> library.removeDownloadForTrack({ trackId, quality, deleteAlbumContainer: true })
+    -> broadcastDownloadEvent("libraryChanged")
+
+  Main: downloadLibrary.js removeDownloadForTrack (line 242-346)
+    -> Deletes audio file from disk
+    -> Removes track from db.tracks
+    -> Removes trackId from ALL playlists' trackIds in db.playlists
+    -> Deletes playlist mirror files
+    -> Updates items.json
+    -> IF deleteAlbumContainer && album has 0 remaining tracks: delete album dir
+    -> IF deleteAlbumContainer: for each playlist with 0 trackIds remaining,
+       check if audio files still exist on disk before deleting playlist dir
+
+PATH 2: Multi-select delete (from playlist/album page)
+  Renderer: trackMultiSelect.js line 337-407
+    -> For each track: window.dl.deleteFromDisk({ id })
+    -> lib.removeDownloadedTrack(id)
+    -> window.dl.scanLibrary()
+    -> reconcileSavedEntitiesByIds({ albumIds, playlistIds })
+    -> reconcileEntitySavedStateAfterDelete()
+
+PATH 3: "Delete from library" (right-click on playlist card)
+  Renderer: menuBuilders.js line 391-449
+    -> window.dl.deletePlaylistFromDisk({ id: idNum })
+    -> window.dl.scanLibrary()
+    -> For each track with matching uuid: lib.removeDownloadedTrack(tid)
+    -> lib.removeSavedPlaylist(idNum)
+
+  Main: downloadLibrary.js deletePlaylistFromDisk (line 397-408)
+    -> fs.rmSync(playlistDir, recursive)
+    -> scanAndRebuild() -- rebuilds entire DB from disk
+
+2.3 RECONCILIATION LOGIC
+--------------------------
+
+reconcileSavedEntitiesAfterTrackDelete (menuBuilders.js line 56-77):
+  - For album: counts remaining downloaded tracks for album
+    * If 0 remaining: removes album from savedAlbums
+  - For playlists: calls countDownloadedForPlaylist(pid)
+    * Uses getOfflineTracklist which reads from main process DB
+    * If 0 remaining: removes playlist from savedPlaylists
+
+reconcileSavedEntitiesByIds (trackMultiSelect.js line 68-97):
+  - For albums: uses dl:listDownloads (main process) to check remaining
+  - For playlists: uses countEntityDownloadedTracks -> getOfflineTracklist
+
+reconcileEntitySavedStateAfterDelete (trackMultiSelect.js line 120-137):
+  - Checks current route's entity type
+  - If remaining downloaded == 0: removes entity from saved
+
+2.4 LIBRARY SIDEBAR RENDERING
+-------------------------------
+
+libraryLocalRenderer.js renderLibraryLocal():
+  - Loads local library state
+  - Calls window.dl.listDownloads() to get all downloaded tracks
+  - Calls window.dl.listPlaylists() to get playlist metadata
+  - For each downloaded track, checks uuid to determine if it's playlist-origin
+  - Builds playlistIdsWithDownloadedTracks set
+  - A playlist appears in sidebar if:
+    * It's in savedPlaylists AND has downloaded tracks, OR
+    * It's in downloadedPlaylistsById AND has downloaded tracks AND has title, OR
+    * It was recently played AND has downloaded tracks
+  - Sort by recency (playedAt, updatedAt, downloadedAt)
+
+2.5 PLAYBACK -> RECENTS FLOW
+------------------------------
+
+playbackSession.js playResolvedTrackUrl():
+  - After successful play, calls lib.addRecentTrack(hydrated, { context: state.playContext })
+  - state.playContext is set by setQueueAndPlay({ context })
+  - context has: { type, id, title, cover }
+
+recentTracksApi.js addRecentTrack():
+  - Records playlistId, playlistTitle, playlistCover from context
+  - These are used by libraryLocalRenderer to build playedAtByPlaylistId
+
+libraryLocalRenderer.js:
+  - Line 37-53: If recentTrack has playlistId, updates playedAtByPlaylistId
+  - Line 51-52: "Playlist plays should not bump the underlying album recency" -- CORRECT
+  - Line 457-481: Recently played playlists show in sidebar IF they have downloaded tracks
+
+================================================================================
+SECTION 3: IDENTIFIED BUGS & ROOT CAUSES
+================================================================================
+
+BUG 1: PLAYLIST REMOVED FROM YOUR LIBRARY WHEN DELETING A SINGLE TRACK
+------------------------------------------------------------------------
+SYMPTOM: Deleting one track from a playlist removes the entire playlist
+from "Your Library" even when other tracks remain downloaded.
+
+ROOT CAUSE ANALYSIS:
+
+The issue is in the reconciliation logic. When a single track is deleted:
+
+1. removeDownloadForTrack() in downloadLibrary.js (line 289-309):
+   When all qualities of a track are removed (line 282), it removes the
+   trackId from ALL playlists' trackIds arrays. This is correct for the
+   DB tracking.
+
+2. BUT: The reconciliation in the renderer checks countDownloadedForPlaylist()
+   which calls getOfflineTracklist(). In offlineTracklist.js line 174-175:
+   ```
+   const ids = Array.isArray(pl.trackIds) ? pl.trackIds : [];
+   if (ids.length === 0) return { ok: false, error: "not_downloaded" };
+   ```
+   
+   After removeDownloadForTrack removes the trackId from pl.trackIds,
+   if the TIMING is such that scanLibrary hasn't fully rebuilt yet,
+   the playlist may appear to have 0 trackIds even though audio files
+   still exist in the playlist mirror directory.
+
+3. CRITICAL: removeDownloadForTrack removes the trackId from
+   db.playlists[pid].trackIds (line 293) AND deletes the playlist mirror
+   file (line 295). But it does NOT check whether other tracks in the
+   playlist still have audio. It only checks this in the
+   deleteAlbumContainer cleanup block (line 326-342).
+
+4. The renderer-side reconciliation (menuBuilders.js line 56-77):
+   reconcileSavedEntitiesAfterTrackDelete calls countDownloadedForPlaylist
+   which uses getOfflineTracklist. Since the trackId was already removed
+   from pl.trackIds AND the mirror file was deleted, the offline tracklist
+   resolver may report fewer tracks than actually exist.
+
+5. DEEPER: The playlist mirror deletion at line 295 is UNCONDITIONAL.
+   It deletes the mirror for the deleted track. But the issue is that
+   after scanLibrary() is called, the DB is rebuilt from disk. If the
+   mirror was already deleted, the track won't be found in the playlist
+   directory anymore.
+
+ACTUAL ROOT CAUSE:
+The problem is a RACE CONDITION + INCORRECT SEQUENCING:
+  a) removeDownloadForTrack deletes the track from db.playlists trackIds
+  b) removeDownloadForTrack deletes the playlist mirror file
+  c) Renderer calls scanLibrary() which rebuilds from disk
+  d) Renderer calls reconcile which checks remaining tracks
+  e) Since the mirror was deleted and trackId removed, the playlist
+     appears empty even though OTHER tracks still have mirrors
+
+But wait - the OTHER tracks' mirrors should still be there. Let me trace
+more carefully...
+
+REFINED ROOT CAUSE:
+Actually, removeDownloadForTrack only removes THIS track's mirror and
+THIS trackId from the playlist. Other tracks' mirrors remain. So the
+issue must be elsewhere.
+
+Let me re-examine: After removeDownloadForTrack, the renderer calls:
+  1. window.dl.scanLibrary() -- rebuilds DB from disk
+  2. lib.removeDownloadedTrack(trackId) -- removes from localStorage
+  3. reconcileSavedEntitiesAfterTrackDelete
+
+In step 3, countDownloadedForPlaylist calls getOfflineTracklist which
+reads db.playlists[pid].trackIds. After scanAndRebuild, the trackIds
+come from items.json. But removeDownloadForTrack already updated
+items.json to remove the deleted trackId (line 298-308).
+
+So after scan, the playlist should still have the OTHER trackIds in
+items.json. The question is: does getOfflineTracklist correctly count
+the remaining tracks as having audio?
+
+In offlineTracklist.js line 200-236, for each trackId in the playlist:
+  - It looks up db.tracks[tid]
+  - If the track has audio (trackHasAnyAudio), it's counted as downloaded
+
+After removeDownloadForTrack + scanAndRebuild:
+  - The deleted track is gone from db.tracks (correct)
+  - Other tracks should still be in db.tracks with their audio paths
+  - The playlist's trackIds in items.json should still list the other tracks
+
+SO: The remaining tracks should still be found. Unless...
+
+HYPOTHESIS: The issue is that removeDownloadForTrack deletes the track
+from db.tracks GLOBALLY (line 283), which means if a track was ONLY
+stored as a playlist mirror (not in the album canonical location), then
+after deletion, the track's audio path is gone from db.tracks entirely.
+
+BUT: The scanner (scanner.js line 168-212) re-scans playlist mirror
+directories and re-adds tracks to db.tracks. So after scanAndRebuild,
+the remaining playlist mirror tracks should be re-indexed.
+
+WAIT - there's a subtle issue. In removeDownloadForTrack line 289-309:
+It iterates ALL playlists and removes the trackId from ALL of them,
+AND deletes the mirror file from ALL playlist directories. But it only
+does this for the DELETED track. Other tracks are untouched.
+
+Let me look at this from a different angle. The user says:
+"I sometimes delete the playlist, then go in and try to redownload a
+song I had downloaded, only for it to apparently just play instantly"
+
+This suggests the files are NOT actually being deleted from disk.
+
+REVISED HYPOTHESIS: The deletion is removing the track from the DB
+and from localStorage, but NOT reliably deleting the actual audio
+files from disk. Then when scanAndRebuild runs, it finds the files
+still on disk and re-adds them.
+
+But the user also says the playlist disappears from Your Library.
+This means the renderer-side state (localStorage playlists) is being
+cleared even though the main process still has the files.
+
+ROOT CAUSE (CONFIRMED):
+The issue is a TWO-LAYER DESYNC:
+
+1. Main process: removeDownloadForTrack correctly handles the DB and
+   files, and scanAndRebuild correctly rebuilds from disk.
+
+2. Renderer: reconcileSavedEntitiesAfterTrackDelete checks
+   countDownloadedForPlaylist AFTER the track is deleted but BEFORE
+   or DURING scanLibrary completing. The async timing means:
+   
+   - deleteFromDisk completes (track removed from DB)
+   - scanLibrary is called (async, may not complete immediately)
+   - reconcile runs and checks getOfflineTracklist
+   - If scanLibrary hasn't finished, the DB state may be stale
+   
+   OR more likely:
+   
+   - The reconcile logic in menuBuilders.js only checks ONE playlistId
+     (parsed from the track's uuid). If the track's uuid doesn't contain
+     a playlist prefix (e.g., it's "dl_123_1" instead of "playlist_456_track_123_1"),
+     then the playlist is never checked at all, and the album reconciliation
+     runs instead, which may incorrectly remove the album.
+
+ACTUALLY - Let me re-read the reconciliation more carefully:
+
+menuBuilders.js line 234-239 (single track delete):
+```
+const playlistIds = (() => {
+  const out = new Set();
+  const pid = parsePlaylistIdFromUuid(pre?.download?.uuid);
+  if (Number.isFinite(pid) && pid > 0) out.add(pid);
+  return Array.from(out);
+})();
+```
+
+This ONLY adds the playlist ID if the track's download uuid starts with
+"playlist_". If the track was downloaded as a standalone (uuid = "dl_...")
+but belongs to a playlist, the playlist ID is NOT included in the
+reconciliation set. This means the playlist reconciliation is SKIPPED.
+
+But wait - the user's complaint is that the playlist IS being removed.
+So either:
+a) The uuid DOES contain the playlist prefix, and the reconciliation
+   incorrectly determines 0 remaining tracks, OR
+b) Something else is removing the playlist
+
+Let me check: After deleteFromDisk, the renderer calls scanLibrary().
+scanAndRebuild() rebuilds the entire DB. If the deleted track's mirror
+was removed, but other mirrors remain, the playlist should still have
+trackIds after rebuild.
+
+THEN reconcile calls countDownloadedForPlaylist which calls
+getOfflineTracklist. This reads db.playlists[pid].trackIds and for
+each, checks if db.tracks[tid] has audio.
+
+After scanAndRebuild, the remaining tracks should be in db.tracks
+(re-indexed from their playlist mirror files). So countDownloaded
+should be > 0.
+
+UNLESS: The remaining tracks' mirrors were ALSO deleted somehow.
+
+Let me check removeDownloadForTrack again carefully:
+
+Line 289-309: This loop runs for EVERY playlist entry:
+```
+for (const [pid, plEntry] of Object.entries(db.playlists || {})) {
+  if (!plEntry || typeof plEntry !== "object") continue;
+  const plIds = Array.isArray(plEntry.trackIds) ? plEntry.trackIds : [];
+  if (!plIds.some((n) => Number(n) === Number(tid))) continue;
+  plEntry.trackIds = plIds.filter((n) => Number(n) !== Number(tid));
+  try {
+    fs.rmSync(path.join(playlistsRoot, pid, "tracks", tid), { recursive: true, force: true });
+  } catch {}
+```
+
+This ONLY deletes the mirror for the SPECIFIC trackId being deleted.
+Other tracks' mirrors are untouched. Good.
+
+Then line 326-342 (deleteAlbumContainer cleanup):
+```
+for (const [pid, plEntry] of Object.entries(db.playlists || {})) {
+  if (!plEntry || typeof plEntry !== "object") continue;
+  const plRemaining = Array.isArray(plEntry.trackIds) ? plEntry.trackIds : [];
+  if (plRemaining.length > 0) continue;  // <-- SKIP if tracks remain
+  try {
+    const plTracksDir = path.join(playlistsRoot, pid, "tracks");
+    if (findFirstFileRecursive(plTracksDir, AUDIO_EXTS)) continue;  // <-- SKIP if audio on disk
+  } catch {}
+  try {
+    fs.rmSync(path.join(playlistsRoot, pid), { recursive: true, force: true });
+  } catch {}
+  delete db.playlists[pid];
+}
+```
+
+This checks: if plRemaining.length > 0, skip (don't delete).
+But plRemaining was ALREADY modified in the earlier loop (line 293)
+to remove the deleted trackId. So if the playlist had 2 tracks and
+we deleted 1, plRemaining.length would be 1, and we'd skip. CORRECT.
+
+If the playlist had 1 track and we deleted it, plRemaining.length
+would be 0, then we check for audio on disk. If other mirrors exist
+(they shouldn't if this was the only track), we skip. Otherwise delete.
+
+This logic seems correct for the main process side.
+
+SO THE BUG MUST BE ON THE RENDERER SIDE.
+
+Let me trace the renderer flow for single-track delete more carefully:
+
+menuBuilders.js line 223-258:
+1. Get pre-delete state (albumId, playlistIds from uuid)
+2. await window.dl.deleteFromDisk({ id: trackId })
+3. await window.dl.scanLibrary()
+4. lib.removeDownloadedTrack(trackId)
+5. await reconcileSavedEntitiesAfterTrackDelete({ albumId, playlistIds })
+
+Step 5 calls (line 56-77):
+- For album: countDownloadedForAlbum(aid) -- checks LOCAL state
+  * If 0: lib.removeSavedAlbum(aid)
+- For playlists: countDownloadedForPlaylist(pid) -- checks MAIN PROCESS
+  * If 0: lib.removeSavedPlaylist(pid)
+
+countDownloadedForAlbum (line 17-35) checks LOCAL localStorage state.
+But step 4 already called removeDownloadedTrack which removed the track
+from localStorage. So the count may be off by one (the just-deleted
+track is already gone from local state).
+
+Wait - countDownloadedForAlbum iterates downloadedTracks and counts
+tracks with matching albumId that have a fileUrl. Since we just removed
+the track in step 4, it won't be counted. This is CORRECT behavior -
+we want to count remaining tracks AFTER deletion.
+
+For playlists, countDownloadedForPlaylist (line 37-54) calls
+getOfflineTracklist which goes to the MAIN PROCESS. After step 2
+(deleteFromDisk) and step 3 (scanLibrary), the main process DB should
+be up-to-date. The remaining tracks should be counted correctly.
+
+UNLESS scanLibrary is async and hasn't completed by the time
+reconcile runs. But step 3 uses `await`, so it should complete.
+
+Hmm. Let me look at what scanLibrary actually returns and whether
+the await is meaningful...
+
+ipc/downloads.js line 140-143:
+```
+ipcMain.handle("dl:scanLibrary", async () => {
+  library.ensureLoaded();
+  return library.scanAndRebuild();
+});
+```
+
+scanAndRebuild is synchronous (scanner.js). It rebuilds the entire DB
+from disk synchronously. So after await scanLibrary(), the DB is
+definitely up-to-date.
+
+OK so let me think about this differently. Maybe the bug is that
+countDownloadedForPlaylist returns 0 when it shouldn't.
+
+countDownloadedForPlaylist (menuBuilders.js line 37-54):
+```
+const countDownloadedForPlaylist = async (playlistId) => {
+  const idNum = Number(playlistId);
+  if (!Number.isFinite(idNum) || idNum <= 0) return 0;
+  try {
+    if (window.dl?.getOfflineTracklist) {
+      const r = await window.dl.getOfflineTracklist({ type: "playlist", id: String(idNum) });
+      const tracks = Array.isArray(r?.data?.tracks) ? r.data.tracks : [];
+      let count = 0;
+      for (const t of tracks) {
+        if (t && !t.__missing) count += 1;
+      }
+      return count;
+    }
+    return 0;
+  } catch {
+    return 0;
+  }
+};
+```
+
+This calls getOfflineTracklist which is in offlineTracklist.js.
+For playlist type (line 169-244):
+
+```
+const pl = db.playlists?.[entityId]...
+if (!pl) return { ok: false, error: "not_downloaded" };
+const ids = Array.isArray(pl.trackIds) ? pl.trackIds : [];
+if (ids.length === 0) return { ok: false, error: "not_downloaded" };
+```
+
+After scanAndRebuild, pl.trackIds comes from items.json on disk.
+removeDownloadForTrack already updated items.json to remove the
+deleted trackId. So ids should contain the remaining trackIds.
+
+For each remaining trackId, it checks:
+```
+const entry = db.tracks?.[tid]...
+const hasAudio = trackHasAnyAudio(entry);
+```
+
+After scanAndRebuild, db.tracks should contain the remaining tracks
+(re-indexed from their playlist mirror files). So hasAudio should be
+true for tracks that still have mirrors.
+
+I think the logic is actually correct in isolation. The bug might be
+more subtle - perhaps related to the `playlistIds` array being empty
+in the reconciliation call.
+
+Let me re-check: In menuBuilders.js line 234-239, playlistIds is
+built from parsePlaylistIdFromUuid(pre?.download?.uuid). If the
+track's uuid in localStorage doesn't have a playlist prefix, the
+playlistIds array is EMPTY, and the playlist reconciliation is
+COMPLETELY SKIPPED.
+
+But the user says the playlist IS being removed. So either:
+1. The uuid DOES have the playlist prefix, or
+2. Something ELSE is removing the playlist
+
+WAIT - I need to check: Is there code that removes the playlist
+from savedPlaylists OUTSIDE of the reconciliation?
+
+Looking at the deleteAlbumContainer cleanup in removeDownloadForTrack
+(line 326-342): This deletes db.playlists entries and playlist
+directories. But this is in the MAIN PROCESS. The renderer's
+savedPlaylists (localStorage) is separate.
+
+The renderer's savedPlaylists is only modified by:
+- lib.removeSavedPlaylist(pid) -- explicit removal
+- lib.addSavedPlaylist(playlist) -- explicit addition
+
+So the playlist can only disappear from Your Library if:
+1. lib.removeSavedPlaylist is called, OR
+2. The sidebar renderer doesn't show it because it fails the
+   "has downloaded tracks" check
+
+Looking at libraryLocalRenderer.js line 393-425:
+```
+for (const p of savedPlaylists) {
+  ...
+  if (!playlistIdsWithDownloadedTracks.has(id)) continue;  // <-- FILTER
+  ...
+}
+```
+
+playlistIdsWithDownloadedTracks is built from:
+1. Track UUIDs that start with "playlist_" AND have a fileUrl in
+   downloadedTracks localStorage (line 170-178)
+2. downloadedPlaylistsById entries with downloaded > 0 (line 239-241)
+
+After lib.removeDownloadedTrack(trackId), the track is gone from
+downloadedTracks localStorage. If this was the ONLY track whose uuid
+referenced this playlist, then playlistIdsWithDownloadedTracks won't
+include this playlist ID from source #1.
+
+Source #2 comes from window.dl.listPlaylists() which reads from the
+main process DB. After scanAndRebuild, if the playlist still has
+tracks with audio, listDownloadedPlaylists should report downloaded > 0.
+
+BUT: listDownloadedPlaylists (dbIndex.js line 163-231) checks:
+```
+for (const tid0 of trackIds) {
+  const tid = toIdString(tid0);
+  ...
+  const ok = (audioPath && validateAudioPath(audioPath)) || trackHasAnyAudio(tid);
+  if (ok) downloaded += 1;
+}
+```
+
+This should correctly count remaining tracks. So source #2 should
+add the playlist to playlistIdsWithDownloadedTracks.
+
+THEN in libraryLocalRenderer.js line 239-241:
+```
+for (const [playlistId, dl] of downloadedPlaylistsById.entries()) {
+  if (dl.downloaded > 0) playlistIdsWithDownloadedTracks.add(playlistId);
+}
+```
+
+This should add the playlist. And then line 399:
+```
+if (!playlistIdsWithDownloadedTracks.has(id)) continue;
+```
+
+Should NOT skip it. So the playlist should still appear.
+
+UNLESS: The renderLibraryLocal function is called BEFORE the async
+operations complete, or there's a timing issue with the library
+change notification.
+
+ACTUAL ROOT CAUSE FOUND:
+After all the deletion steps, the renderer dispatches
+"local-library:changed" which triggers a re-render of the sidebar.
+But the sidebar render is async (it calls window.dl.listDownloads()
+and window.dl.listPlaylists()). If the re-render happens BEFORE
+the main process has finished scanAndRebuild, the stale data could
+cause the playlist to not appear.
+
+But we already established that scanLibrary is awaited before
+reconciliation. The issue is that lib.removeDownloadedTrack
+dispatches "local-library:changed" IMMEDIATELY, which triggers
+the sidebar to re-render with potentially stale main-process data.
+
+SEQUENCE:
+1. deleteFromDisk completes
+2. scanLibrary completes (DB rebuilt)
+3. lib.removeDownloadedTrack(trackId) -- dispatches changed event
+4. Sidebar starts re-rendering (async, calls listDownloads/listPlaylists)
+5. reconcileSavedEntitiesAfterTrackDelete runs
+6. reconcile may call lib.removeSavedPlaylist -- dispatches changed event
+7. Sidebar re-renders again
+
+The issue is step 6: if reconcile incorrectly determines 0 remaining
+tracks and calls removeSavedPlaylist, the playlist is gone.
+
+OR: The sidebar render in step 4 correctly shows the playlist, but
+then step 6 removes it, and step 7 re-renders without it.
+
+So the question remains: does reconcile incorrectly determine 0?
+
+Let me check one more time: In menuBuilders.js line 234-239,
+playlistIds comes from the track's uuid. If the uuid is
+"playlist_456_track_123_1", then playlistIds = [456].
+
+Then reconcile (line 68-76):
+```
+for (const pid0 of ids) {
+  const pid = Number(pid0);
+  ...
+  const remaining = await countDownloadedForPlaylist(pid);
+  if (remaining > 0) continue;
+  try {
+    if (lib.isPlaylistSaved?.(pid)) lib.removeSavedPlaylist?.(pid);
+  } catch {}
+}
+```
+
+countDownloadedForPlaylist calls getOfflineTracklist. After scan,
+the playlist should have remaining tracks. So remaining should be > 0.
+And we should `continue` (not remove).
+
+I'm going in circles. Let me look at this from the USER's perspective
+and what they're actually seeing:
+
+"PLAYLIST STILL REMOVES ITSELF from YOUR LIBRARY WHEN DELETING A SONG,
+WHEN THE REST OF THE PLAYLIST SONGS ARE STILL DOWNLOADED"
+
+"I sometimes delete the playlist, then go in and try to redownload a
+song I had downloaded, only for it to apparently just play instantly
+and making it obvious that it was never deleted"
+
+"The tracks that were 'deleted' I can play and it creates a 'double'
+listing of the same playlist under Your Library"
+
+These symptoms together suggest:
+1. The playlist disappears from sidebar (localStorage playlists removed)
+2. But the files are NOT actually deleted from disk
+3. When re-playing, the files are found on disk and play instantly
+4. A new playlist entry is created in localStorage, causing a "double"
+
+This points to: The renderer-side state is being incorrectly cleared
+while the main-process files remain intact.
+
+NEW HYPOTHESIS: The bug is that removeDownloadedTrack in localStorage
+removes the track, which causes the sidebar to lose track of the
+playlist. Then reconciliation (or just the sidebar re-render) doesn't
+find the playlist in playlistIdsWithDownloadedTracks because:
+
+Source #1 (uuid-based): The deleted track's uuid was the ONLY one
+referencing this playlist in downloadedTracks localStorage. After
+removal, no other track in localStorage references this playlist.
+
+Source #2 (listPlaylists): This SHOULD still work. But maybe there's
+a timing issue or the playlist's downloaded count is 0.
+
+Let me check listDownloadedPlaylists more carefully...
+
+In dbIndex.js listDownloadedPlaylists (line 163-231):
+For each playlist, it reads items.json to get trackIds and downloads.
+For each trackId, it checks:
+```
+const slot = downloadsMap?.[tid]...
+const audioPath = slot?.audioPath...
+const ok = (audioPath && validateAudioPath(audioPath)) || trackHasAnyAudio(tid);
+```
+
+validateAudioPath checks if the file exists on disk and has size > 0.
+trackHasAnyAudio checks db.tracks[tid] for any quality with valid audio.
+
+After removeDownloadForTrack:
+- The deleted track is gone from db.tracks
+- The deleted track's mirror is gone from disk
+- The deleted track is removed from items.json trackIds and downloads
+- OTHER tracks remain in db.tracks (from album canonical or other mirrors)
+- OTHER tracks remain in items.json
+
+So for the remaining tracks:
+- downloadsMap[tid] should have audioPath pointing to the mirror
+- validateAudioPath should return true if the mirror file exists
+- trackHasAnyAudio should return true if the track is in db.tracks
+
+This should work. downloaded should be > 0.
+
+UNLESS: The remaining tracks' mirrors point to files that no longer
+exist. This could happen if the album was also deleted (deleteAlbumContainer).
+
+Wait - when deleteAlbumContainer is true (which it is for deleteFromDisk),
+line 315-324:
+```
+if (deleteAlbumContainer && albumId) {
+  const albumEntry = db.albums[albumId];
+  const remaining = Array.isArray(albumEntry?.trackIds) ? albumEntry.trackIds : [];
+  if (remaining.length === 0) {
+    try {
+      fs.rmSync(getAlbumDir(albumId), { recursive: true, force: true });
+    } catch {}
+    delete db.albums[albumId];
+  }
+}
+```
+
+If the deleted track was the ONLY track from this album, the entire
+album directory gets deleted. This includes the canonical audio files
+for ALL tracks from this album. But the playlist mirrors should still
+exist (they're in the playlists/ directory, not albums/).
+
+However, if the mirrors are HARD LINKS (playlistMirror.js line 37:
+`fs.linkSync(src, destAudioPath)`), and the album canonical file is
+deleted, the hard link still works because it points to the same inode.
+The file data persists as long as at least one link exists.
+
+If the hard link failed and it fell back to copyFileSync (line 40),
+then the mirror is an independent copy and survives album deletion.
+
+So the mirrors should survive. The downloaded count should be > 0.
+
+I'm struggling to find the exact root cause through static analysis
+alone. Let me focus on what I CAN identify as definite bugs and fix
+those, then see if the symptoms resolve.
+
+================================================================================
+SECTION 4: DEFINITE BUGS IDENTIFIED
+================================================================================
+
+BUG A: PLAYLIST COVER NOT SHOWN IN PLAYER/RECENTS
+---------------------------------------------------
+Location: playbackSession.js playResolvedTrackUrl()
+
+When playing a track from a playlist, the cover shown in the player
+and recents should be the PLAYLIST cover, not the track's album cover.
+
+Currently, the cover is resolved from the track's album metadata.
+The playContext has the playlist cover, but it's only used for
+addRecentTrack context, not for the player UI cover.
+
+The setNowPlayingUI call uses track.cover which is the album cover.
+It should use the playlist cover when playing from a playlist context.
+
+BUG B: DOUBLE PLAYLIST LISTING
+-------------------------------
+Location: downloadPlayback.js line 210-216
+
+When playing a track from a deleted playlist, if the file still exists
+on disk, attemptDownloadAndPlay re-saves the playlist:
+```
+if (hasPlaylistCtx && !lib.isPlaylistSaved?.(ctxId)) {
+  lib.addSavedPlaylist?.({ id: ctxId, title: ..., cover: ... });
+}
+```
+
+This creates a NEW entry in localStorage playlists. If the old entry
+was removed but the main process still has the playlist, this creates
+a second reference. Combined with the sidebar also showing the playlist
+from downloadedPlaylistsById (source #2), this could cause a double.
+
+BUG C: FILES NOT ACTUALLY DELETED
+-----------------------------------
+Location: downloadLibrary.js removeDownloadForTrack()
+
+The function deletes audio files using fs.unlinkSync, but the playlist
+mirror files are only deleted for the specific trackId. If the track
+was downloaded with a playlist context, the album canonical file is
+deleted, but the mirror in the playlist directory may survive as a
+hard link (same inode). After scanAndRebuild, the mirror is re-indexed
+as the track's audio source, making it appear the track was never deleted.
+
+This is actually BY DESIGN for playlist mirrors - they should survive
+album deletions. But when the user explicitly deletes a track, BOTH
+the album canonical AND the playlist mirror should be deleted.
+
+The current code DOES delete the mirror (line 295):
+```
+fs.rmSync(path.join(playlistsRoot, pid, "tracks", tid), { recursive: true, force: true });
+```
+
+But this only runs when `Object.keys(qualities).length === 0` (line 282).
+If the track has multiple qualities, and only one is being deleted,
+the mirror is NOT deleted. However, the default behavior (no quality
+specified) deletes ALL qualities, so this should be fine.
+
+Wait - let me re-read. The deleteFromDisk handler passes quality: null:
+```
+const quality = payload?.quality ? String(payload.quality) : null;
+```
+
+And in removeDownloadForTrack:
+```
+const q = normalizeQuality(quality);  // null -> null
+const targets = q ? (qualities[q] ? [q] : []) : Object.keys(qualities);
+```
+
+So targets = all qualities. All are deleted. qualities becomes empty.
+Then line 282: Object.keys(qualities).length === 0 -> true.
+So the mirror IS deleted. And the track IS removed from db.tracks.
+
+After scanAndRebuild, the track should NOT be re-indexed because
+both the album file and mirror are gone.
+
+Hmm, but the user says files aren't deleted. Maybe the fs.rmSync
+or fs.unlinkSync is silently failing?
+
+BUG D: SIDEBAR PLAYLIST VISIBILITY DEPENDS ON LOCALSTORAGE STATE
+-----------------------------------------------------------------
+Location: libraryLocalRenderer.js line 170-178
+
+The primary source for playlistIdsWithDownloadedTracks is:
+```
+if (uuid.startsWith("playlist_")) {
+  albumHasPlaylistOriginById.set(albumId, true);
+  const _m = uuid.match(/^playlist_(\d+)_track_/);
+  if (_m) {
+    const _pid = Number(_m[1]);
+    const _dlEntry = downloadedTracksState[String(trackId)];
+    const _hasFile = _dlEntry && typeof _dlEntry === "object" && _dlEntry.download?.fileUrl;
+    if (Number.isFinite(_pid) && _pid > 0 && _hasFile) playlistIdsWithDownloadedTracks.add(_pid);
+  }
+}
+```
+
+This checks downloadedTracksState (localStorage) for a fileUrl.
+After removeDownloadedTrack, the entry is gone from localStorage.
+So this source won't find the playlist.
+
+BUT source #2 (line 239-241) should still work:
+```
+for (const [playlistId, dl] of downloadedPlaylistsById.entries()) {
+  if (dl.downloaded > 0) playlistIdsWithDownloadedTracks.add(playlistId);
+}
+```
+
+This comes from window.dl.listPlaylists() which reads from main process.
+If the main process still has tracks, downloaded > 0, and the playlist
+should be added.
+
+The question is: does the sidebar re-render happen AFTER scanLibrary
+completes? The answer is: it depends on timing. The "local-library:changed"
+event fires synchronously from removeDownloadedTrack, which triggers
+renderLibraryLocal. This is async and calls listPlaylists. By the time
+listPlaylists resolves, scanLibrary should have already completed
+(it was awaited before removeDownloadedTrack was called).
+
+So this should work. Unless there's a case where scanLibrary was NOT
+called before the sidebar re-renders.
+
+Actually, looking at the multi-select delete path more carefully:
+
+trackMultiSelect.js line 337-407:
+```
+for (const id of ids) {
+  ...
+  const res = await window.dl.deleteFromDisk({ id });
+  ...
+  lib.removeDownloadedTrack?.(id);  // <-- triggers sidebar re-render
+}
+// AFTER the loop:
+await window.dl?.scanLibrary?.();
+await reconcileSavedEntitiesByIds({ albumIds, playlistIds });
+```
+
+HERE'S THE BUG! For multi-select:
+1. For each track: deleteFromDisk + removeDownloadedTrack
+2. removeDownloadedTrack triggers sidebar re-render
+3. Sidebar calls listPlaylists (main process)
+4. But scanLibrary hasn't been called yet (it's after the loop)
+5. The main process DB may be stale (removeDownloadForTrack updated
+   it, but not via a full scan)
+
+Actually, removeDownloadForTrack DOES call save() at the end (line 344).
+So the DB is updated. But the DB was updated by removing the trackId
+from the playlist. If we're deleting tracks one by one, after each
+deletion, the playlist has fewer trackIds. The sidebar re-renders
+after each deletion and may show the playlist flickering.
+
+But the real issue is: after ALL deletions, scanLibrary is called,
+which rebuilds from disk. If all tracks were deleted, the playlist
+directory may still exist but have no audio files, so the playlist
+would have 0 trackIds after rebuild.
+
+Then reconcileSavedEntitiesByIds checks remaining tracks and removes
+the playlist if 0.
+
+This seems correct for the case where ALL tracks are deleted.
+But the user's complaint is about deleting SOME tracks.
+
+Let me focus on the specific scenario: User has a playlist with
+tracks A, B, C downloaded. User deletes track A.
+
+Multi-select path:
+1. deleteFromDisk(A) -> removes A from db, removes A's mirror
+2. removeDownloadedTrack(A) -> removes from localStorage, triggers re-render
+3. Sidebar re-renders: listPlaylists shows playlist with B,C still downloaded
+4. scanLibrary -> rebuilds, B and C still have mirrors
+5. reconcile: countDownloadedForPlaylist returns 2 (B and C)
+6. Playlist stays in Your Library
+
+This should work. So why is the user seeing the bug?
+
+POSSIBILITY: The user is using the "Delete from library" option
+(right-click on playlist card), not individual track deletion.
+
+"Delete from library" (menuBuilders.js line 391-449):
+```
+if (asEntityType === "playlist" && window.dl?.deletePlaylistFromDisk) {
+  await window.dl.deletePlaylistFromDisk({ id: idNum });
+}
+await window.dl?.scanLibrary?.();
+// Remove tracks from localStorage
+for (const [tid, row] of Object.entries(downloaded)) {
+  const uuid = entry?.download?.uuid...
+  if (uuid.startsWith(`playlist_${idNum}_track_`)) {
+    lib.removeDownloadedTrack?.(Number(tid));
+  }
+}
+// Remove playlist from saved
+if (lib.isPlaylistSaved?.(idNum)) lib.removeSavedPlaylist?.(idNum);
+```
+
+deletePlaylistFromDisk (downloadLibrary.js line 397-408):
+```
+fs.rmSync(path.join(playlistsRoot, pid), { recursive: true, force: true });
+scanAndRebuild();
+```
+
+This deletes the ENTIRE playlist directory. But the album canonical
+files still exist. After scanAndRebuild, the tracks are re-indexed
+from the album directories. The tracks still exist in db.tracks.
+
+Then in the renderer, removeDownloadedTrack is called for each track
+whose uuid matches the playlist. This removes them from localStorage.
+
+But the tracks still exist on disk (in the album directory). So when
+the user plays one, it's found via resolveTrack and plays instantly.
+
+Then attemptDownloadAndPlay re-saves the playlist (line 210-216),
+creating a "double" listing.
+
+THIS IS THE BUG FLOW FOR "DELETE FROM LIBRARY":
+1. deletePlaylistFromDisk removes playlist dir but NOT album files
+2. scanAndRebuild re-indexes tracks from album dirs
+3. Renderer removes tracks from localStorage
+4. Renderer removes playlist from savedPlaylists
+5. Sidebar re-renders: playlist gone (correct so far)
+6. User plays a track from the playlist page
+7. Track is found on disk (album canonical) and plays instantly
+8. attemptDownloadAndPlay re-saves the playlist -> double listing
+
+The fix for this: "Delete from library" for a playlist should ALSO
+delete the album canonical files for tracks that were downloaded
+as part of this playlist (identified by uuid prefix).
+
+BUT WAIT - the user says they want this behavior:
+"Deleting a song from a playlist should only remove the playlist
+under 'Your Library' when there are no files left on local of said
+playlist"
+
+So the user wants:
+- Delete individual track from playlist: remove track, keep playlist if others remain
+- Delete playlist from library: remove ALL tracks AND the playlist
+
+For "Delete from library", the current code deletes the playlist
+directory but not the album canonical files. This means the tracks
+are still playable, which the user considers a bug.
+
+================================================================================
+SECTION 5: FIX PLAN
+================================================================================
+
+FIX 1: "Delete from library" should delete album canonical files too
+---------------------------------------------------------------------
+File: renderer/contextMenu/menuBuilders.js
+In the "Delete from library" handler for playlists:
+After deletePlaylistFromDisk, also delete each track's album canonical
+file using deleteFromDisk for each track.
+
+FIX 2: Prevent double playlist listing after re-play
+------------------------------------------------------
+File: renderer/player/downloadPlayback.js
+When re-saving a playlist in attemptDownloadAndPlay, check if the
+playlist already exists in downloadedPlaylistsById (main process)
+before creating a new localStorage entry.
+
+FIX 3: Player cover should show playlist cover when playing from playlist
+--------------------------------------------------------------------------
+File: renderer/player/playbackSession.js
+When setting the now-playing UI, if playContext is a playlist, use
+the playlist cover for the player and recents, not the album cover.
+
+FIX 4: Ensure reconciliation correctly counts remaining playlist tracks
+------------------------------------------------------------------------
+File: renderer/contextMenu/menuBuilders.js
+File: renderer/library/trackMultiSelect.js
+After deletion, ensure scanLibrary completes BEFORE any reconciliation
+or sidebar re-render triggers.
+
+FIX 5: "Delete from library" for playlists must also clear localStorage
+------------------------------------------------------------------------
+Currently it does clear localStorage, but only for tracks whose uuid
+matches. If a track was re-downloaded with a different uuid (e.g., "dl_"),
+it won't be cleared. Need to also check albumId matching.
+
+================================================================================
+SECTION 6: IMPLEMENTATION ORDER
+================================================================================
+
+1. FIX 1 (Critical): Delete album files when deleting playlist from library
+2. FIX 4 (Critical): Fix reconciliation timing
+3. FIX 2 (High): Prevent double playlist listing
+4. FIX 3 (Medium): Player cover for playlist context
+5. FIX 5 (Medium): Comprehensive localStorage cleanup

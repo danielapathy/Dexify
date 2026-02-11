@@ -8,8 +8,10 @@ import {
   DOWNLOAD_QUALITY_KEY,
   clampDownloadQualityForCapabilities,
   getDownloadQualityRaw,
+  getNormalizeAudioSetting,
   normalizeDownloadQuality,
   setDownloadQualityRaw,
+  setNormalizeAudioSetting,
 } from "./settings.js";
 import { createArtistCache } from "./navigation/artistCache.js";
 import { createDownloadBadges } from "./navigation/downloadBadges.js";
@@ -169,6 +171,8 @@ export function wireNavigation() {
     setDownloadQualityRaw,
     clampDownloadQualityForCapabilities,
     downloadQualityKey: DOWNLOAD_QUALITY_KEY,
+    getNormalizeAudioSetting,
+    setNormalizeAudioSetting,
   });
 
   const { renderLikedInto, renderDownloadsInto } = createLikedDownloadsRenderer({

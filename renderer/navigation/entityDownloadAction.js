@@ -41,6 +41,7 @@ export function createEntityDownloadAction({ lib, getActiveEntry }) {
     const downloadState = e?.downloadAction && typeof e.downloadAction === "object" ? e.downloadAction : null;
     if (downloadState) {
       const btn = downloadState.btn && downloadState.btn.nodeType === 1 ? downloadState.btn : null;
+      const removeBtn = downloadState.removeBtn && downloadState.removeBtn.nodeType === 1 ? downloadState.removeBtn : null;
       if (btn) {
         const label = String(downloadState.label || "").trim();
         const trackIds = Array.isArray(downloadState.trackIds) ? downloadState.trackIds : [];
@@ -48,22 +49,25 @@ export function createEntityDownloadAction({ lib, getActiveEntry }) {
         const stats = computeStats(trackIds, downloadedTracks);
         const fullyDownloaded = stats.total > 0 && stats.remaining === 0;
         const partial = stats.downloaded > 0 && stats.remaining > 0;
+        const hasAny = stats.downloaded > 0;
 
-        btn.classList.remove("is-disabled");
-        btn.setAttribute("aria-disabled", "false");
         btn.dataset.downloadRemaining = String(stats.remaining);
         btn.dataset.downloadTotal = String(stats.total);
+        btn.dataset.deleteMode = "0";
 
         let tooltip;
         if (fullyDownloaded) {
-          tooltip = "Delete from library";
-          btn.dataset.deleteMode = "1";
-        } else if (partial) {
-          tooltip = `Download remaining ${stats.remaining} track${stats.remaining === 1 ? "" : "s"}`;
-          btn.dataset.deleteMode = "0";
+          tooltip = "Downloaded";
+          btn.classList.add("is-disabled");
+          btn.setAttribute("aria-disabled", "true");
         } else {
-          tooltip = resolveLabel(label, stats);
-          btn.dataset.deleteMode = "0";
+          btn.classList.remove("is-disabled");
+          btn.setAttribute("aria-disabled", "false");
+          if (partial) {
+            tooltip = `Download remaining ${stats.remaining} track${stats.remaining === 1 ? "" : "s"}`;
+          } else {
+            tooltip = resolveLabel(label, stats);
+          }
         }
         try {
           btn.dataset.tooltip = tooltip;
@@ -71,7 +75,19 @@ export function createEntityDownloadAction({ lib, getActiveEntry }) {
         } catch {}
 
         const icon = btn.querySelector("i");
-        if (icon) icon.className = fullyDownloaded ? "ri-delete-bin-6-line" : "ri-download-2-line";
+        if (icon) icon.className = fullyDownloaded ? "ri-check-line" : "ri-download-2-line";
+      }
+
+      if (removeBtn) {
+        const trackIds = Array.isArray(downloadState.trackIds) ? downloadState.trackIds : [];
+        const downloadedTracks = getDownloadedTracks();
+        const stats = computeStats(trackIds, downloadedTracks);
+        const hasAny = stats.downloaded > 0;
+        if (hasAny) {
+          removeBtn.classList.remove("is-hidden");
+        } else {
+          removeBtn.classList.add("is-hidden");
+        }
       }
     }
 
@@ -107,7 +123,7 @@ export function createEntityDownloadAction({ lib, getActiveEntry }) {
 
   schedule();
 
-  const bind = (entry, btn, { label, trackIds } = {}) => {
+  const bind = (entry, btn, { label, trackIds, removeBtn } = {}) => {
     const e = entry && typeof entry === "object" ? entry : null;
     const b = btn && btn.nodeType === 1 ? btn : null;
     if (!e || !b) return;
@@ -116,6 +132,7 @@ export function createEntityDownloadAction({ lib, getActiveEntry }) {
       btn: b,
       label: String(label || "").trim(),
       trackIds: Array.isArray(trackIds) ? trackIds : [],
+      removeBtn: removeBtn && removeBtn.nodeType === 1 ? removeBtn : null,
     };
     applyToEntry(e);
   };

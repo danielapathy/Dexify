@@ -1,0 +1,47 @@
+{
+  "appId": "com.dexify.app",
+  "productName": "Dexify",
+  "directories": {
+    "output": "build/artifacts"
+  },
+  "files": [
+    "**/*",
+    "!build/**/*",
+    "!dist/**/*",
+    "!tests/**/*",
+    "!.session/**/*",
+    "!.backup*",
+    "!**/*.md",
+    "README.md",
+    "!.git/**/*",
+    "!.DS_Store"
+  ],
+  "mac": {
+    "category": "public.app-category.music",
+    "icon": "icon.png",
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64", "arm64"]
+      }
+    ]
+  },
+  "win": {
+    "icon": "icon.png",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+  }
+}
+

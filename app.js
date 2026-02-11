@@ -28,6 +28,18 @@ let authedInitialized = false;
 let bootCompleted = false;
 let bootErrorShown = false;
 
+let uiDebugInstalled = false;
+async function maybeInstallUiDebug() {
+  if (uiDebugInstalled) return;
+  uiDebugInstalled = true;
+  try {
+    const q = new URLSearchParams(window.location.search || "");
+    if (q.get("uiDebug") !== "1") return;
+    const mod = await import("./renderer/debug/uiDebug.js");
+    mod.installUiDebug?.();
+  } catch {}
+}
+
 function showBootError(error) {
   if (bootCompleted || bootErrorShown) return;
   bootErrorShown = true;
@@ -275,6 +287,7 @@ async function bootstrap() {
   }
 
   setShellMode("app");
+  void maybeInstallUiDebug();
   bootCompleted = true;
   syncSignedOutUi?.();
   if (hasARL) initAuthedOnce();

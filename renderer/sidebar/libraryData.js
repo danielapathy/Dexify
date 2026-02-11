@@ -522,7 +522,7 @@ export function wireLibraryData() {
 
   let refreshTimer = 0;
   const scheduleRefresh = (delayMs = 90) => {
-    if (refreshTimer) return;
+    if (refreshTimer) clearTimeout(refreshTimer);
     refreshTimer = window.setTimeout(() => {
       refreshTimer = 0;
       void refresh();

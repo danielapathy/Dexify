@@ -164,14 +164,17 @@ function createDbIndexApi({
     const db = getDb();
     if (!db) return { ok: false, error: "db_not_loaded" };
 
-    const trackHasAnyAudio = (trackId0) => {
+    const trackHasPlaylistTaggedAudio = (trackId0, playlistId0) => {
       const tid = toIdString(trackId0);
-      if (!tid) return false;
+      const pid = toIdString(playlistId0);
+      if (!tid || !pid) return false;
       const entry = db.tracks?.[tid] && typeof db.tracks[tid] === "object" ? db.tracks[tid] : null;
       if (!entry) return false;
       const qualities = entry.qualities && typeof entry.qualities === "object" ? entry.qualities : {};
       for (const q of Object.keys(qualities)) {
         const audioPath = qualities[q]?.audioPath ? String(qualities[q].audioPath) : "";
+        const uuid = qualities[q]?.uuid ? String(qualities[q].uuid) : "";
+        if (!uuid.startsWith(`playlist_${pid}_track_`)) continue;
         if (validateAudioPath(audioPath)) return true;
       }
       return false;
@@ -200,16 +203,26 @@ function createDbIndexApi({
       if (!pid) continue;
 
       const playlistItems = readPlaylistItems(entry.itemsJsonPath);
-      const trackIds = Array.isArray(playlistItems?.trackIds) && playlistItems.trackIds.length > 0 ? playlistItems.trackIds : Array.isArray(entry.trackIds) ? entry.trackIds : [];
+      const downloadsMap = playlistItems?.downloads && typeof playlistItems.downloads === "object" ? playlistItems.downloads : null;
+      const trackIds =
+        Array.isArray(playlistItems?.trackIds) && playlistItems.trackIds.length > 0
+          ? playlistItems.trackIds
+          : downloadsMap && Object.keys(downloadsMap).length > 0
+            ? Object.keys(downloadsMap)
+            : Array.isArray(entry.trackIds)
+              ? entry.trackIds
+              : [];
       const total = trackIds.length;
       let downloaded = 0;
-      const downloadsMap = playlistItems?.downloads && typeof playlistItems.downloads === "object" ? playlistItems.downloads : null;
+      const hasDownloadsMap = Boolean(downloadsMap);
       for (const tid0 of trackIds) {
         const tid = toIdString(tid0);
         if (!tid) continue;
         const slot = downloadsMap?.[tid] && typeof downloadsMap[tid] === "object" ? downloadsMap[tid] : null;
         const audioPath = slot?.audioPath ? String(slot.audioPath) : "";
-        const ok = (audioPath && validateAudioPath(audioPath)) || trackHasAnyAudio(tid);
+        const okFromMap = Boolean(audioPath && validateAudioPath(audioPath));
+        const okFromTaggedTrack = !hasDownloadsMap && trackHasPlaylistTaggedAudio(tid, pid);
+        const ok = okFromMap || okFromTaggedTrack;
         if (ok) downloaded += 1;
       }
 

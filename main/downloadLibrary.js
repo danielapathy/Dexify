@@ -19,7 +19,7 @@ const {
 const { createDownloadLibraryPaths } = require("./downloadLibrary/paths");
 const { createDbIndexApi } = require("./downloadLibrary/dbIndex");
 const { createLibraryScanner } = require("./downloadLibrary/scanner");
-const { ensurePlaylistTrackMirror } = require("./downloadLibrary/playlistMirror");
+const { ensurePlaylistTrackMirror: ensurePlaylistTrackMirrorOnDisk } = require("./downloadLibrary/playlistMirror");
 
 function createDownloadLibrary({ downloadsDir }) {
   const paths = createDownloadLibraryPaths({ downloadsDir, toIdString, normalizeQuality });
@@ -286,26 +286,46 @@ function createDownloadLibrary({ downloadsDir }) {
         const ids = Array.isArray(albumEntry.trackIds) ? albumEntry.trackIds : [];
         albumEntry.trackIds = ids.filter((n) => Number(n) !== Number(tid));
       }
-      for (const [pid, plEntry] of Object.entries(db.playlists || {})) {
-        if (!plEntry || typeof plEntry !== "object") continue;
-        const plIds = Array.isArray(plEntry.trackIds) ? plEntry.trackIds : [];
-        if (!plIds.some((n) => Number(n) === Number(tid))) continue;
-        plEntry.trackIds = plIds.filter((n) => Number(n) !== Number(tid));
+      const prunePlaylistMirror = ({ pid, itemsPath }) => {
+        const playlistId = toIdString(pid);
+        if (!playlistId) return;
         try {
-          fs.rmSync(path.join(playlistsRoot, pid, "tracks", tid), { recursive: true, force: true });
+          fs.rmSync(path.join(playlistsRoot, playlistId, "tracks", tid), { recursive: true, force: true });
         } catch {}
         try {
-          const itemsPath = typeof plEntry.itemsJsonPath === "string" ? plEntry.itemsJsonPath : "";
-          if (itemsPath) {
-            const items = readJson(itemsPath);
-            if (items && typeof items === "object") {
-              const nextIds = Array.isArray(items.trackIds) ? items.trackIds.filter((n) => String(n) !== tid) : [];
-              const dl = items.downloads && typeof items.downloads === "object" ? { ...items.downloads } : {};
-              delete dl[tid];
-              writeJsonAtomic(itemsPath, { trackIds: nextIds, downloads: dl });
-            }
+          const resolvedItemsPath =
+            typeof itemsPath === "string" && itemsPath
+              ? itemsPath
+              : path.join(playlistsRoot, playlistId, "items.json");
+          const items = readJson(resolvedItemsPath);
+          if (!items || typeof items !== "object" || Array.isArray(items)) return;
+          const prevTrackIds = Array.isArray(items.trackIds) ? items.trackIds : [];
+          const prevDownloads = items.downloads && typeof items.downloads === "object" ? items.downloads : null;
+          if (!prevDownloads || !Object.prototype.hasOwnProperty.call(prevDownloads, tid)) return;
+          const nextDownloads = { ...prevDownloads };
+          delete nextDownloads[tid];
+          const nextTrackIds = prevTrackIds.filter((x) => String(x) !== tid);
+          writeJsonAtomic(resolvedItemsPath, { trackIds: nextTrackIds, downloads: nextDownloads });
+          // Also prune db.playlists trackIds to stay consistent.
+          const dbPl = db.playlists[playlistId];
+          if (dbPl && Array.isArray(dbPl.trackIds)) {
+            dbPl.trackIds = dbPl.trackIds.filter((x) => String(x) !== tid);
           }
         } catch {}
+      };
+      for (const [pid, plEntry] of Object.entries(db.playlists || {})) {
+        if (!plEntry || typeof plEntry !== "object") continue;
+        prunePlaylistMirror({
+          pid,
+          itemsPath: typeof plEntry.itemsJsonPath === "string" ? plEntry.itemsJsonPath : "",
+        });
+      }
+      // Also sweep playlist directories that may exist on disk but not in db.playlists.
+      for (const ent of listDirents(playlistsRoot).filter((d) => d.isDirectory())) {
+        const pid = toIdString(ent.name);
+        if (!pid) continue;
+        if (db.playlists && db.playlists[pid]) continue;
+        prunePlaylistMirror({ pid, itemsPath: path.join(playlistsRoot, pid, "items.json") });
       }
     } else {
       entry.qualities = qualities;
@@ -328,6 +348,12 @@ function createDownloadLibrary({ downloadsDir }) {
         if (!plEntry || typeof plEntry !== "object") continue;
         const plRemaining = Array.isArray(plEntry.trackIds) ? plEntry.trackIds : [];
         if (plRemaining.length > 0) continue;
+        // Don't delete playlist directories that still have audio files on disk
+        // (e.g. playlist mirrors that remain valid after an album-context track deletion).
+        try {
+          const plTracksDir = path.join(playlistsRoot, pid, "tracks");
+          if (findFirstFileRecursive(plTracksDir, AUDIO_EXTS)) continue;
+        } catch {}
         try {
           fs.rmSync(path.join(playlistsRoot, pid), { recursive: true, force: true });
         } catch {}
@@ -392,8 +418,66 @@ function createDownloadLibrary({ downloadsDir }) {
     ensureLoaded();
     const pid = toIdString(playlistId);
     if (!pid) return { ok: false, error: "bad_request" };
+
+    // Collect trackIds belonging to this playlist BEFORE deleting anything.
+    const plEntry = db.playlists[pid] && typeof db.playlists[pid] === "object" ? db.playlists[pid] : null;
+    const plTrackIds = (() => {
+      const ids = new Set();
+      // From db entry
+      if (plEntry) {
+        const arr = Array.isArray(plEntry.trackIds) ? plEntry.trackIds : [];
+        for (const t of arr) { const n = toIdString(t); if (n) ids.add(n); }
+      }
+      // From items.json on disk
+      try {
+        const itemsPath = plEntry?.itemsJsonPath || path.join(playlistsRoot, pid, "items.json");
+        const items = readJson(itemsPath);
+        if (items && typeof items === "object") {
+          const arr = Array.isArray(items.trackIds) ? items.trackIds : [];
+          for (const t of arr) { const n = toIdString(t); if (n) ids.add(n); }
+          // Also include tracks listed in the downloads map
+          if (items.downloads && typeof items.downloads === "object") {
+            for (const k of Object.keys(items.downloads)) { const n = toIdString(k); if (n) ids.add(n); }
+          }
+        }
+      } catch {}
+      return ids;
+    })();
+
+    // Delete each track's album-canonical audio files so they don't linger on disk.
+    // Only delete tracks whose uuids are strictly owned by THIS playlist across
+    // all qualities. Shared or unknown ownership is preserved.
+    for (const tid of plTrackIds) {
+      const trackEntry = db.tracks[tid] && typeof db.tracks[tid] === "object" ? db.tracks[tid] : null;
+      if (!trackEntry) continue;
+      // Check if this track is ONLY associated with this playlist (not also downloaded
+      // independently or via another playlist).  We check the uuid of each quality slot.
+      const qualities = trackEntry.qualities && typeof trackEntry.qualities === "object" ? trackEntry.qualities : {};
+      let onlyThisPlaylist = true;
+      for (const q of Object.keys(qualities)) {
+        const uuid = qualities[q]?.uuid ? String(qualities[q].uuid) : "";
+        if (!uuid || !uuid.startsWith(`playlist_${pid}_track_`)) {
+          // If uuid is missing or points to any other context (other playlist,
+          // album, single-track, artist), treat this track as shared.
+          onlyThisPlaylist = false;
+          break;
+        }
+      }
+      if (onlyThisPlaylist) {
+        try {
+          removeDownloadForTrack({ trackId: Number(tid), quality: null, deleteAlbumContainer: true });
+        } catch {}
+      }
+    }
+
+    // Now delete the playlist directory itself (mirrors, playlist.json, items.json).
     try {
       fs.rmSync(path.join(playlistsRoot, pid), { recursive: true, force: true });
+    } catch {}
+    // Remove from DB
+    delete db.playlists[pid];
+    try {
+      save();
     } catch {}
     try {
       scanAndRebuild();
@@ -412,8 +496,9 @@ function createDownloadLibrary({ downloadsDir }) {
     ensureAlbumMetadata,
     ensureTrackStoredFromStaging,
     ensurePlaylistMetadata,
-    ensurePlaylistTrackMirror: ({ playlistId, trackId, quality, sourceAudioPath, trackJson }) =>
-      ensurePlaylistTrackMirror({
+    ensurePlaylistTrackMirror: ({ playlistId, trackId, quality, sourceAudioPath, trackJson }) => {
+      ensureLoaded();
+      const res = ensurePlaylistTrackMirrorOnDisk({
         playlistsRoot,
         playlistId,
         trackId,
@@ -426,7 +511,36 @@ function createDownloadLibrary({ downloadsDir }) {
         writeJsonAtomic,
         toIdString,
         normalizeQuality,
-      }),
+      });
+      if (!res?.ok) return res;
+
+      const pid = toIdString(playlistId);
+      if (!pid) return res;
+      const playlistDir = path.join(playlistsRoot, pid);
+      const playlistJsonPath = path.join(playlistDir, "playlist.json");
+      const itemsJsonPath = path.join(playlistDir, "items.json");
+      const playlistJson = readJson(playlistJsonPath);
+      const items = readJson(itemsJsonPath);
+      const trackIds = Array.isArray(items?.trackIds)
+        ? items.trackIds.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0)
+        : Array.isArray(res?.trackIds)
+          ? res.trackIds.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0)
+          : [];
+      const existing = db.playlists[pid] && typeof db.playlists[pid] === "object" ? db.playlists[pid] : {};
+      db.playlists[pid] = {
+        ...existing,
+        playlistId: Number(pid),
+        title: String(playlistJson?.title || existing?.title || ""),
+        playlistJsonPath,
+        itemsJsonPath,
+        trackIds,
+        updatedAt: Date.now(),
+      };
+      try {
+        save();
+      } catch {}
+      return res;
+    },
     stageDirForUuid,
     removeDownloadForTrack,
     healMissingAlbumCovers,

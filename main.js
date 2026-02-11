@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const path = require("node:path");
 
 app.setName("Dexify");
+process.title = "Dexify";
 
 const { APP_BOOT_AT_MS } = require("./main/constants");
 const { safeJsonParse, fetchJson } = require("./main/utils");
@@ -14,6 +15,7 @@ const { extractDeezerAppState, extractDeezerAppStateWithArl } = require("./main/
 const {
   getSessionDir,
   getAppStateStoragePath,
+  getDownloadsDir,
   loadSession,
   saveSession,
   clearSession,
@@ -57,9 +59,8 @@ app.whenReady().then(async () => {
     }
   } catch {}
 
-  createMainWindow();
-
   const state = {
+    mainWindow: null,
     sessionState: loadSession(), // { arl, cookies }
     sessionUser: null, // { id, name, pictureId, avatarUrl }
     sessionUserFetch: null,
@@ -69,9 +70,21 @@ app.whenReady().then(async () => {
     dzClientAuthed: null,
     dzClientAuthedInit: null,
     dzClientAuthedArl: null,
+    downloadsDebug: null,
   };
 
-  const webhookServer = startSessionWebhook({ getSession: () => state.sessionState });
+  state.mainWindow = createMainWindow();
+
+  const argv = Array.isArray(process.argv) ? process.argv : [];
+  const uiDebugEnabled = Boolean(process.env.DEXIFY_UI_DEBUG) || argv.some((a) => a === "--ui-debug");
+
+  const webhookServer = startSessionWebhook({
+    getSession: () => state.sessionState,
+    getMainWindow: () => state.mainWindow,
+    uiDebugEnabled,
+    getDownloadsDir,
+    getDownloadDebugState: (opts) => state.downloadsDebug?.getDebugState?.(opts) || null,
+  });
 
   const refreshSessionUser = async () => {
     if (state.sessionUserFetch) return state.sessionUserFetch;
@@ -227,7 +240,12 @@ app.whenReady().then(async () => {
   });
 
   registerAppIpcHandlers({ ipcMain, app, shell, getSessionDir, getAppStateStoragePath });
-  registerDownloadIpcHandlers({ ipcMain, getDzClient, loadVendoredDeemixLite, broadcastDownloadEvent });
+  state.downloadsDebug = registerDownloadIpcHandlers({
+    ipcMain,
+    getDzClient,
+    loadVendoredDeemixLite,
+    broadcastDownloadEvent,
+  });
   registerDeezerIpcHandlers({
     ipcMain,
     fetchJson,

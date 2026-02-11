@@ -257,13 +257,15 @@ export function createEntityRenderer({
       const cachedArtist = type === "artist" && !routeRefresh ? readArtistCache(entityId) : null;
 
       // Prefer the local snapshot first for consistency and resilience; fall back to Deezer.
+      let offlineRes = null;
       if (canShowOffline) {
         try {
-          res = await window.dl.getOfflineTracklist({ type, id: entityId });
+          offlineRes = await window.dl.getOfflineTracklist({ type, id: entityId });
         } catch {
-          res = null;
+          offlineRes = null;
         }
       }
+      res = offlineRes?.ok ? offlineRes : null;
 
       if (!res?.ok && cachedArtist?.data) {
         const ok = renderEntityData(cachedArtist.data, { fromCache: true });
@@ -272,12 +274,40 @@ export function createEntityRenderer({
         if (ok && cachedArtist.fresh && !routeRefresh && !canShowOffline) return true;
       }
 
-      if (!res?.ok && canUseDz) {
+      // When the offline snapshot is incomplete (missing title/cover, or we simply
+      // have Deezer available), fetch from Deezer for the full metadata and merge
+      // the offline download-status annotations into the Deezer track list.
+      const offlineData = offlineRes?.ok && offlineRes?.data ? offlineRes.data : null;
+      const offlineLooksIncomplete = offlineData && (
+        !String(offlineData.title || "").trim() ||
+        (!String(offlineData.cover_medium || offlineData.cover || offlineData.picture_medium || offlineData.picture || "").trim())
+      );
+
+      if (canUseDz && (!res?.ok || offlineLooksIncomplete)) {
         try {
-          res = await window.dz.getTracklist({ type, id: entityId });
-          usedDz = Boolean(res?.ok && res?.data);
+          const dzRes = await window.dz.getTracklist({ type, id: entityId });
+          usedDz = Boolean(dzRes?.ok && dzRes?.data);
+          if (usedDz && offlineData) {
+            // Merge: use Deezer data as the base, annotate tracks with offline
+            // download status (__missing = false means downloaded).
+            const offlineTrackIds = new Set();
+            for (const t of Array.isArray(offlineData.tracks) ? offlineData.tracks : []) {
+              const tid = Number(t?.id || t?.SNG_ID);
+              if (Number.isFinite(tid) && tid > 0 && !t.__missing) offlineTrackIds.add(tid);
+            }
+            const dzData = dzRes.data;
+            const dzTracks = Array.isArray(dzData.tracks) ? dzData.tracks : [];
+            const mergedTracks = dzTracks.map((t) => {
+              const tid = Number(t?.id || t?.SNG_ID);
+              const isDownloaded = Number.isFinite(tid) && tid > 0 && offlineTrackIds.has(tid);
+              return isDownloaded ? t : { ...t, __missing: true };
+            });
+            res = { ok: true, data: { ...dzData, tracks: mergedTracks } };
+          } else if (usedDz) {
+            res = dzRes;
+          }
         } catch {
-          res = null;
+          // Keep whatever we had from offline.
         }
       }
 

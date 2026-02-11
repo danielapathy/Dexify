@@ -354,47 +354,95 @@
 	                  <div class="settings-view">
 	                    <div class="settings-view__header">
 	                      <div class="settings-view__title">Settings</div>
-                      <div class="settings-view__subtitle">Downloads • Session • Storage</div>
-                    </div>
+	                      <button class="icon-btn settings-view__search" type="button" aria-label="Search settings" disabled>
+	                        <i class="ri-search-line icon" aria-hidden="true"></i>
+	                      </button>
+	                    </div>
 
-                    <div class="settings-view__grid">
-                      <section class="settings-card" aria-label="Session">
-                        <div class="settings-card__title">Session</div>
-                        <div class="settings-card__row">
-                          <div class="settings-card__label">Status</div>
-                          <div class="settings-card__value" id="settingsSessionStatus">Loading…</div>
-                        </div>
-                        <div class="settings-card__row">
-                          <div class="settings-card__label">User</div>
-                          <div class="settings-card__value" id="settingsSessionUser">—</div>
-                        </div>
-                        <div class="settings-card__actions">
-                          <button class="pill" type="button" id="settingsOpenSessionDir">Open session folder</button>
-                          <button class="pill pill--muted" type="button" id="settingsRefreshAppState">Refresh app state</button>
-                          <button class="pill pill--muted" type="button" id="settingsLogout">Log out</button>
-                        </div>
-                      </section>
+	                    <div class="settings-view__content">
+	                      <section class="settings-section" aria-label="Account">
+	                        <h2 class="settings-section__title">Account</h2>
 
-                      <section class="settings-card" aria-label="Downloads">
-                        <div class="settings-card__title">Downloads</div>
-                        <div class="settings-card__row">
-                          <div class="settings-card__label">Download folder</div>
-                          <div class="settings-card__value" id="settingsDownloadDir">—</div>
-                        </div>
-                        <div class="settings-card__row">
-                          <div class="settings-card__label">Quality</div>
-                          <div class="settings-card__value">
-                            <select class="settings-select" id="settingsQuality">
-                              <option value="mp3_128">MP3 128</option>
-                              <option value="mp3_320">MP3 320</option>
-                              <option value="flac">FLAC</option>
-                            </select>
-                          </div>
-                        </div>
-                        <div class="settings-card__hint">
-                          Download quality is stored locally and used for deemix-lite downloads.
-                        </div>
-                      </section>
+	                        <div class="settings-item">
+	                          <div class="settings-item__main">
+	                            <div class="settings-item__label">Status</div>
+	                          </div>
+	                          <div class="settings-item__control">
+	                            <div class="settings-item__value" id="settingsSessionStatus">Loading…</div>
+	                          </div>
+	                        </div>
+
+	                        <div class="settings-item">
+	                          <div class="settings-item__main">
+	                            <div class="settings-item__label">User</div>
+	                          </div>
+	                          <div class="settings-item__control">
+	                            <div class="settings-item__value" id="settingsSessionUser">—</div>
+	                          </div>
+	                        </div>
+
+	                        <div class="settings-item">
+	                          <div class="settings-item__main">
+	                            <div class="settings-item__label">Log out</div>
+	                            <div class="settings-item__desc">Ends your current Deezer session on this device.</div>
+	                          </div>
+	                          <div class="settings-item__control">
+	                            <button class="pill settings-action" type="button" id="settingsLogout">Log out</button>
+	                          </div>
+	                        </div>
+	                      </section>
+
+	                      <section class="settings-section" aria-label="Downloads">
+	                        <h2 class="settings-section__title">Downloads</h2>
+
+	                        <div class="settings-item">
+	                          <div class="settings-item__main">
+	                            <div class="settings-item__label">Download folder</div>
+	                            <div class="settings-item__desc" id="settingsDownloadDir">—</div>
+	                          </div>
+	                          <div class="settings-item__control">
+	                            <button class="pill settings-action" type="button" id="settingsOpenSessionDir">Open folder</button>
+	                          </div>
+	                        </div>
+
+	                        <div class="settings-item">
+	                          <div class="settings-item__main">
+	                            <div class="settings-item__label">Quality</div>
+	                            <div class="settings-item__desc">Download quality is stored locally and used for deemix-lite downloads.</div>
+	                          </div>
+	                          <div class="settings-item__control">
+	                            <select class="settings-select" id="settingsQuality">
+	                              <option value="mp3_128">MP3 128</option>
+	                              <option value="mp3_320">MP3 320</option>
+	                              <option value="flac">FLAC</option>
+	                            </select>
+	                          </div>
+	                        </div>
+
+	                        <div class="settings-item">
+	                          <div class="settings-item__main">
+	                            <div class="settings-item__label">Refresh app state</div>
+	                            <div class="settings-item__desc">Re-extracts Deezer app state used for downloads and playback.</div>
+	                          </div>
+	                          <div class="settings-item__control">
+	                            <button class="pill settings-action settings-action--muted" type="button" id="settingsRefreshAppState">Refresh</button>
+	                          </div>
+	                        </div>
+	                      </section>
+
+	                      <section class="settings-section" aria-label="Playback">
+	                        <h2 class="settings-section__title">Playback</h2>
+
+	                        <div class="settings-item">
+	                          <div class="settings-item__main">
+	                            <div class="settings-item__label">Normalize audio</div>
+	                            <div class="settings-item__desc">Adjusts sound to maintain the same volume level.</div>
+	                          </div>
+	                          <div class="settings-item__control">
+	                            <button class="toggle-switch" type="button" id="settingsNormalizeAudio" aria-label="Normalize audio" aria-pressed="false"></button>
+	                          </div>
+	                        </div>
+	                      </section>
 	                    </div>
 	                  </div>
 	                </div>
@@ -410,12 +458,16 @@
 
         <footer class="player" aria-label="Player">
           <div class="player__left">
-            <img class="player__cover" id="playerCover" alt="" src="https://picsum.photos/seed/menlo/100/100" />
-            <div class="player__meta">
-              <div class="player__title" id="playerTitle">MENLO PARK</div>
-              <div class="player__artist" id="playerArtist">Ayesha Erotica</div>
+            <div class="player__empty" id="playerEmpty">
+              <div class="player__empty-cover"></div>
+              <div class="player__empty-text">No track selected</div>
             </div>
-            <button class="icon-btn" id="playerLikeBtn" type="button" aria-label="Save to your library">
+            <img class="player__cover player__track-el" id="playerCover" alt="" />
+            <div class="player__meta player__track-el">
+              <div class="player__title" id="playerTitle"></div>
+              <div class="player__artist" id="playerArtist"></div>
+            </div>
+            <button class="icon-btn player__track-el" id="playerLikeBtn" type="button" aria-label="Save to your library">
               <i class="ri-heart-line icon" aria-hidden="true"></i>
             </button>
           </div>

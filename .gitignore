@@ -3,6 +3,7 @@ dist/
 .DS_Store
 *.md
 *.MD
+!build/RELEASES.md
 .backup.*
 .backup
 
@@ -22,3 +23,5 @@ tests
 builds
 scripts
 .*/ 
+
+build/artifacts/

@@ -94,7 +94,29 @@ export function createPlayerController() {
     seek: document.getElementById("playerSeek"),
     volume: document.getElementById("playerVolume"),
     audioSettingsBtn: document.getElementById("playerAudioSettingsBtn"),
+    empty: document.getElementById("playerEmpty"),
   };
+
+  const trackEls = el.root ? Array.from(el.root.querySelectorAll(".player__track-el")) : [];
+  let playerShowingTrack = false;
+
+  const showEmptyState = () => {
+    if (!playerShowingTrack) return;
+    playerShowingTrack = false;
+    for (const node of trackEls) node.classList.add("is-out");
+    if (el.empty) el.empty.classList.remove("is-out");
+  };
+
+  const showTrackState = () => {
+    if (playerShowingTrack) return;
+    playerShowingTrack = true;
+    for (const node of trackEls) node.classList.remove("is-out");
+    if (el.empty) el.empty.classList.add("is-out");
+  };
+
+  // Boot: start in empty state
+  for (const node of trackEls) node.classList.add("is-out");
+  if (el.empty) el.empty.classList.remove("is-out");
 
   // Player state can disable most controls (e.g. download failures), but liking should always be available.
   try {
@@ -218,6 +240,24 @@ export function createPlayerController() {
       }
     }
     if (changed) setCache(cache);
+
+    // If the deleted track is currently playing, stop playback and show empty state.
+    const currentId = resolveTrackId(state.track);
+    if (currentId === trackId) {
+      try { audio.pause(); } catch {}
+      try { audio.src = ""; } catch {}
+      state.track = null;
+      state.isPlaying = false;
+      state.queue = [];
+      state.index = -1;
+      state.downloadUuid = null;
+      state.resumeFrom = 0;
+      setPlayIcon(false);
+      setLikeIcon(false);
+      emitState();
+      try { localStorage.removeItem(LAST_PLAYBACK_KEY); } catch {}
+      showEmptyState();
+    }
   });
 
   const switchQualityForCurrentTrack = async () => {
@@ -325,6 +365,12 @@ export function createPlayerController() {
   bootstrapPlayerCapabilities({ getQualitySetting });
 
   restorePlayback();
+  if (state.track) showTrackState();
+
+  // Show track state when a new track starts playing.
+  window.addEventListener("player:change", (e) => {
+    if (e.detail?.trackId && state.track) showTrackState();
+  });
 
   window.addEventListener("beforeunload", () => {
     persistPlayback(true, state.resumeFrom);

@@ -171,14 +171,28 @@ function createOfflineTracklistResolver({
       if (!pl) return { ok: false, error: "not_downloaded" };
       const playlistJsonPath = typeof pl.playlistJsonPath === "string" ? pl.playlistJsonPath : "";
       const playlistJson = playlistJsonPath ? readJson(playlistJsonPath) : {};
-      const ids = Array.isArray(pl.trackIds) ? pl.trackIds : [];
+      const itemsJsonPath = typeof pl.itemsJsonPath === "string" ? pl.itemsJsonPath : "";
+      const itemsJson = itemsJsonPath ? readJson(itemsJsonPath) : null;
+      const downloadsMap =
+        itemsJson && typeof itemsJson === "object" && itemsJson.downloads && typeof itemsJson.downloads === "object"
+          ? itemsJson.downloads
+          : null;
+      const hasDownloadsMap = Boolean(downloadsMap);
+      const ids = (() => {
+        const fromItems = itemsJson && typeof itemsJson === "object" && Array.isArray(itemsJson.trackIds) ? itemsJson.trackIds : [];
+        if (fromItems.length > 0) return fromItems;
+        if (downloadsMap && typeof downloadsMap === "object") return Object.keys(downloadsMap);
+        return Array.isArray(pl.trackIds) ? pl.trackIds : [];
+      })();
       if (ids.length === 0) return { ok: false, error: "not_downloaded" };
-      const trackHasAnyAudio = (entry) => {
+      const trackHasPlaylistTaggedAudio = (entry) => {
         const e = entry && typeof entry === "object" ? entry : null;
         if (!e) return false;
         const qualities = e.qualities && typeof e.qualities === "object" ? e.qualities : {};
         for (const q of Object.keys(qualities)) {
           const audioPath = qualities[q]?.audioPath ? String(qualities[q].audioPath) : "";
+          const uuid = qualities[q]?.uuid ? String(qualities[q].uuid) : "";
+          if (!uuid.startsWith(`playlist_${entityId}_track_`)) continue;
           if (!audioPath) continue;
           const st = safeStat(audioPath);
           if (st && st.isFile() && st.size > 0) return true;
@@ -202,14 +216,20 @@ function createOfflineTracklistResolver({
         const tid = toIdString(trackId0);
         if (!tid) continue;
         const entry = db.tracks?.[tid] && typeof db.tracks[tid] === "object" ? db.tracks[tid] : null;
+        const slot = downloadsMap?.[tid] && typeof downloadsMap[tid] === "object" ? downloadsMap[tid] : null;
+        const slotAudioPath = slot?.audioPath ? String(slot.audioPath) : "";
+        const slotStat = slotAudioPath ? safeStat(slotAudioPath) : null;
+        const hasAudioFromMap = Boolean(slotStat && slotStat.isFile() && slotStat.size > 0);
+        const hasAudio = hasAudioFromMap || (!hasDownloadsMap && trackHasPlaylistTaggedAudio(entry));
         const trackJsonPath = typeof entry?.trackJsonPath === "string" ? entry.trackJsonPath : "";
         const trackJson = trackJsonPath ? readJson(trackJsonPath) : null;
         if (trackJson && typeof trackJson === "object") {
-          tracks.push(trackJson);
+          const next = { ...trackJson };
+          if (!hasAudio) next.__missing = true;
+          tracks.push(next);
           continue;
         }
 
-        const hasAudio = trackHasAnyAudio(entry);
         const meta = metaByTrackId.get(tid) || null;
         const title = String(meta?.title || meta?.SNG_TITLE || `Track #${tid}`);
         const artistName = String(meta?.artist?.name || meta?.ART_NAME || "Unknown artist");

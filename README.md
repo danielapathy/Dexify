@@ -64,6 +64,17 @@ Optional: a local-only HTTP server is started on `127.0.0.1` to help with debugg
 - `GET /session` (can require a token, and can optionally expose `arl` and cookies)
 - `GET /app-state` (reads `.session/app_state.json` when present)
 
+UI debug (opt-in): when started with `DEXIFY_UI_DEBUG=true` (or `--ui-debug`), additional endpoints are available:
+
+- `GET /ui/wait` (wait for renderer + landing UI to be ready)
+- `GET /ui/snapshot/home`
+- `GET /ui/snapshot/library`
+- `GET /ui/snapshot/now-playing`
+- `GET /ui/snapshot/page` (current view; entity header/actions/tracks when on an entity page)
+- `POST /ui/navigate` (JSON body: `{ "route": { "name": "liked" } }`, `{ "route": { "name":"entity","entityType":"album","id":"123" } }`, etc.)
+- `GET /ui/downloads/summary` (simplified on-disk downloads: album/track names, quality, file size)
+- `GET /ui/downloads/playlists` (simplified downloaded playlists)
+
 ## Deezer app state extraction (Home sections)
 
 After login, the main process tries to extract Deezer's web app state (`window.__DZR_APP_STATE__`) using a hidden BrowserWindow with your session cookies (or `arl`).
@@ -110,6 +121,7 @@ In progress / rough edges:
 ## Useful env vars
 
 - `AUTO_OPEN_DEVTOOLS=false`: do not auto-open DevTools.
+- `DEXIFY_UI_DEBUG=true`: enable the UI debug surface + `/ui/*` webhook endpoints.
 - `MUSIC_APP_LOGIN_URL`: override the login popup URL.
 - `SESSION_DIR`: override where `.session/` is stored in dev.
 - `SESSION_WEBHOOK_PORT`: port for the local webhook server (default `3210`).

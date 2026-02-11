@@ -34,28 +34,73 @@ export function createContextMenuBuilders({ lib }) {
     }
   };
 
-  const countDownloadedForPlaylist = (playlistId) => {
+  const getPlaylistDownloadedState = async (playlistId) => {
     const idNum = Number(playlistId);
-    if (!Number.isFinite(idNum) || idNum <= 0) return 0;
+    if (!Number.isFinite(idNum) || idNum <= 0) return { remaining: 0, confidentEmpty: false };
+
+    let tracklistCount = null;
+    let tracklistTotal = 0;
     try {
-      const st = lib.load?.() || {};
-      const downloaded = st.downloadedTracks && typeof st.downloadedTracks === "object" ? st.downloadedTracks : {};
-      let count = 0;
-      for (const row of Object.values(downloaded)) {
-        const entry = row && typeof row === "object" ? row : null;
-        if (!entry) continue;
-        const fileUrl = entry?.download?.fileUrl ? String(entry.download.fileUrl) : "";
-        if (!fileUrl) continue;
-        const uuid = entry?.download?.uuid ? String(entry.download.uuid) : "";
-        if (uuid.startsWith(`playlist_${idNum}_track_`)) count += 1;
+      if (window.dl?.getOfflineTracklist) {
+        const r = await window.dl.getOfflineTracklist({ type: "playlist", id: String(idNum) });
+        const tracks = Array.isArray(r?.data?.tracks) ? r.data.tracks : [];
+        tracklistTotal = tracks.length;
+        let count = 0;
+        for (const t of tracks) {
+          if (t && !t.__missing) count += 1;
+        }
+        tracklistCount = count;
+        if (count > 0) return { remaining: count, confidentEmpty: true };
       }
-      return count;
-    } catch {
-      return 0;
+    } catch {}
+
+    let playlistRowFound = false;
+    let listPlaylistsCount = null;
+    if (window.dl?.listPlaylists) {
+      try {
+        const res = await window.dl.listPlaylists();
+        const rows = Array.isArray(res?.playlists) ? res.playlists : [];
+        for (const row of rows) {
+          if (Number(row?.playlistId || row?.id) !== idNum) continue;
+          playlistRowFound = true;
+          const dl = Number(row?.downloaded);
+          if (Number.isFinite(dl) && dl >= 0) listPlaylistsCount = dl;
+          if (Number.isFinite(dl) && dl > 0) return { remaining: dl, confidentEmpty: true };
+          break;
+        }
+      } catch {}
     }
+
+    if (window.dl?.listDownloads) {
+      try {
+        const res = await window.dl.listDownloads();
+        const rows = Array.isArray(res?.tracks) ? res.tracks : [];
+        let count = 0;
+        for (const row of rows) {
+          const uuid = String(row?.uuid || "");
+          const fileUrl = String(row?.fileUrl || "").trim();
+          if (!fileUrl) continue;
+          if (uuid.startsWith(`playlist_${idNum}_track_`)) count += 1;
+        }
+        if (count > 0) return { remaining: count, confidentEmpty: true };
+      } catch {}
+    }
+
+    const confidentEmpty =
+      tracklistCount === 0 &&
+      tracklistTotal > 0 &&
+      playlistRowFound &&
+      Number.isFinite(listPlaylistsCount) &&
+      listPlaylistsCount === 0;
+    return { remaining: 0, confidentEmpty };
   };
 
-  const reconcileSavedEntitiesAfterTrackDelete = ({ albumId, playlistIds }) => {
+  const countDownloadedForPlaylist = async (playlistId) => {
+    const state = await getPlaylistDownloadedState(playlistId);
+    return state.remaining;
+  };
+
+  const reconcileSavedEntitiesAfterTrackDelete = async ({ albumId, playlistIds }) => {
     const aid = Number(albumId);
     if (Number.isFinite(aid) && aid > 0) {
       const remaining = countDownloadedForAlbum(aid);
@@ -70,8 +115,8 @@ export function createContextMenuBuilders({ lib }) {
     for (const pid0 of ids) {
       const pid = Number(pid0);
       if (!Number.isFinite(pid) || pid <= 0) continue;
-      const remaining = countDownloadedForPlaylist(pid);
-      if (remaining > 0) continue;
+      const playlistState = await getPlaylistDownloadedState(pid);
+      if (playlistState.remaining > 0 || !playlistState.confidentEmpty) continue;
       try {
         if (lib.isPlaylistSaved?.(pid)) lib.removeSavedPlaylist?.(pid);
       } catch {}
@@ -237,6 +282,17 @@ export function createContextMenuBuilders({ lib }) {
               const out = new Set();
               const pid = parsePlaylistIdFromUuid(pre?.download?.uuid);
               if (Number.isFinite(pid) && pid > 0) out.add(pid);
+              // Also include the current page's entity if it's a playlist/album,
+              // so reconciliation checks it even when the track's uuid doesn't
+              // contain a playlist prefix (e.g. "dl_*" standalone downloads).
+              try {
+                const route = window.__navRoute && typeof window.__navRoute === "object" ? window.__navRoute : null;
+                if (String(route?.name || "") === "entity") {
+                  const routeType = String(route?.entityType || "");
+                  const routeId = Number(route?.id);
+                  if (routeType === "playlist" && Number.isFinite(routeId) && routeId > 0) out.add(routeId);
+                }
+              } catch {}
               return Array.from(out);
             })();
 
@@ -244,11 +300,22 @@ export function createContextMenuBuilders({ lib }) {
             try {
               await window.dl?.scanLibrary?.();
             } catch {}
+            // Only remove from localStorage if the track is truly gone from the
+            // main process — playlist mirrors may have survived the deletion.
+            let trackStillExists = false;
+            if (window.dl?.resolveTrack) {
+              try {
+                const r = await window.dl.resolveTrack({ id: trackId });
+                trackStillExists = Boolean(r?.ok && r?.exists && r?.fileUrl);
+              } catch {}
+            }
+            if (!trackStillExists) {
+              try {
+                lib.removeDownloadedTrack?.(trackId);
+              } catch {}
+            }
             try {
-              lib.removeDownloadedTrack?.(trackId);
-            } catch {}
-            try {
-              reconcileSavedEntitiesAfterTrackDelete({
+              await reconcileSavedEntitiesAfterTrackDelete({
                 albumId: reconcileAlbumId,
                 playlistIds,
               });
@@ -336,20 +403,51 @@ export function createContextMenuBuilders({ lib }) {
         }),
       );
 
+      if (asEntityType === "album") {
+        let albumArtistId = null;
+        if (window.dl?.getOfflineTracklist) {
+          try {
+            const r = await window.dl.getOfflineTracklist({ type: "album", id: String(asEntityId) });
+            const data = r?.data && typeof r.data === "object" ? r.data : null;
+            const n = Number(data?.artist?.id || data?.artist?.ART_ID || data?.ART_ID || 0);
+            if (Number.isFinite(n) && n > 0) albumArtistId = n;
+          } catch {}
+        }
+        if (!albumArtistId && window.dz?.getTracklist && typeof window.dz.getTracklist === "function") {
+          try {
+            const res = await window.dz.getTracklist({ type: "album", id: asEntityId });
+            const data = res?.data && typeof res.data === "object" ? res.data : null;
+            const n = Number(data?.artist?.id || data?.artist?.ART_ID || data?.ART_ID || 0);
+            if (Number.isFinite(n) && n > 0) albumArtistId = n;
+          } catch {}
+        }
+        if (albumArtistId) {
+          items.push(
+            buildItem({
+              label: "Go to artist",
+              icon: "ri-user-3-line",
+              onClick: async () => {
+                window.__spotifyNav?.navigate?.({ name: "entity", entityType: "artist", id: String(albumArtistId), scrollTop: 0 });
+              },
+            }),
+          );
+        }
+      }
+
       if (asEntityType === "album" || asEntityType === "playlist") {
         const rootEl = card && card.nodeType === 1 ? card : null;
         const metaTitle = String(rootEl?.querySelector?.(".big-card__title, .library-item__title")?.textContent || "").trim();
         const metaSubtitle = String(rootEl?.querySelector?.(".big-card__subtitle, .library-item__subtitle")?.textContent || "").trim();
         const metaCover = String(rootEl?.querySelector?.(".big-card__cover img, img.cover--img")?.getAttribute?.("src") || "").trim();
         const idNum = Number(asEntityId);
-        const getDownloadedCount = () => {
+        const getDownloadedCount = async () => {
           if (!Number.isFinite(idNum) || idNum <= 0) return 0;
           if (asEntityType === "album") return countDownloadedForAlbum(idNum);
           if (asEntityType === "playlist") return countDownloadedForPlaylist(idNum);
           return 0;
         };
 
-        const dlCount = getDownloadedCount();
+        const dlCount = await getDownloadedCount();
 
         if (dlCount > 0) {
           items.push({ kind: "sep" });
@@ -360,6 +458,48 @@ export function createContextMenuBuilders({ lib }) {
               icon: "ri-delete-bin-6-line",
               danger: true,
               onClick: async () => {
+                const affectedPlaylistIds = new Set();
+                // Collect track IDs that belong to this entity BEFORE deletion
+                // so we can clean up localStorage afterwards.
+                const preDeleteTrackIds = new Set();
+                try {
+                  if (asEntityType === "album") {
+                    // Before deleting, find playlists that contain tracks from this album
+                    const st = lib.load?.() || {};
+                    const downloaded = st.downloadedTracks && typeof st.downloadedTracks === "object" ? st.downloadedTracks : {};
+                    for (const [tid, row] of Object.entries(downloaded)) {
+                      const entry = row && typeof row === "object" ? row : null;
+                      if (!entry) continue;
+                      if (Number(entry?.albumId) !== idNum) continue;
+                      preDeleteTrackIds.add(Number(tid));
+                      const uuid = entry?.download?.uuid ? String(entry.download.uuid) : "";
+                      const m = uuid.match(/^playlist_(\d+)_track_/);
+                      if (m) { const pid = Number(m[1]); if (Number.isFinite(pid) && pid > 0) affectedPlaylistIds.add(pid); }
+                    }
+                  } else if (asEntityType === "playlist") {
+                    // Use the offline tracklist (main process) to get the full list of
+                    // tracks in this playlist before we delete anything.
+                    if (window.dl?.getOfflineTracklist) {
+                      try {
+                        const r = await window.dl.getOfflineTracklist({ type: "playlist", id: String(idNum) });
+                        const tracks = Array.isArray(r?.data?.tracks) ? r.data.tracks : [];
+                        for (const t of tracks) {
+                          const tid = Number(t?.id || t?.SNG_ID);
+                          if (Number.isFinite(tid) && tid > 0) preDeleteTrackIds.add(tid);
+                        }
+                      } catch {}
+                    }
+                    // Also collect from localStorage in case offline tracklist is incomplete
+                    const st = lib.load?.() || {};
+                    const downloaded = st.downloadedTracks && typeof st.downloadedTracks === "object" ? st.downloadedTracks : {};
+                    for (const [tid, row] of Object.entries(downloaded)) {
+                      const entry = row && typeof row === "object" ? row : null;
+                      if (!entry) continue;
+                      const uuid = entry?.download?.uuid ? String(entry.download.uuid) : "";
+                      if (uuid.startsWith(`playlist_${idNum}_track_`)) preDeleteTrackIds.add(Number(tid));
+                    }
+                  }
+                } catch {}
                 try {
                   if (asEntityType === "album" && window.dl?.deleteAlbumFromDisk) {
                     await window.dl.deleteAlbumFromDisk({ id: idNum });
@@ -368,22 +508,59 @@ export function createContextMenuBuilders({ lib }) {
                   }
                   try { await window.dl?.scanLibrary?.(); } catch {}
                 } catch {}
+                // Remove all tracks that belonged to this entity from localStorage.
+                // For playlists we use the pre-collected set (covers all uuid formats).
+                // For albums, only remove tracks that are truly gone from the main
+                // process — playlist mirrors may have survived deleteAlbumFromDisk.
                 try {
                   const st = lib.load?.() || {};
                   const downloaded = st.downloadedTracks && typeof st.downloadedTracks === "object" ? st.downloadedTracks : {};
                   for (const [tid, row] of Object.entries(downloaded)) {
                     const entry = row && typeof row === "object" ? row : null;
                     if (!entry) continue;
+                    const tidNum = Number(tid);
                     if (asEntityType === "album" && Number(entry?.albumId) === idNum) {
-                      try { lib.removeDownloadedTrack?.(Number(tid)); } catch {}
-                    } else if (asEntityType === "playlist") {
-                      const uuid = entry?.download?.uuid ? String(entry.download.uuid) : "";
-                      if (uuid.startsWith(`playlist_${idNum}_track_`)) {
-                        try { lib.removeDownloadedTrack?.(Number(tid)); } catch {}
+                      // Check if the track still has a valid audio file (e.g. playlist mirror survived).
+                      let stillExists = false;
+                      if (window.dl?.resolveTrack) {
+                        try {
+                          const r = await window.dl.resolveTrack({ id: tidNum });
+                          stillExists = Boolean(r?.ok && r?.exists && r?.fileUrl);
+                        } catch {}
                       }
+                      if (!stillExists) {
+                        try { lib.removeDownloadedTrack?.(tidNum); } catch {}
+                      }
+                    } else if (asEntityType === "playlist" && preDeleteTrackIds.has(tidNum)) {
+                      try { lib.removeDownloadedTrack?.(tidNum); } catch {}
+                    }
+                  }
+                  // For playlist deletion, also remove any tracks from the pre-collected
+                  // set that may have already been removed from downloadedTracks.
+                  if (asEntityType === "playlist") {
+                    for (const tid of preDeleteTrackIds) {
+                      try { lib.removeDownloadedTrack?.(tid); } catch {}
                     }
                   }
                 } catch {}
+                // Explicitly remove the deleted entity from Your Library
+                try {
+                  if (asEntityType === "album") {
+                    if (lib.isAlbumSaved?.(idNum)) lib.removeSavedAlbum?.(idNum);
+                  } else if (asEntityType === "playlist") {
+                    if (lib.isPlaylistSaved?.(idNum)) lib.removeSavedPlaylist?.(idNum);
+                  }
+                } catch {}
+                // When deleting an album, reconcile any playlists that had tracks from it
+                if (asEntityType === "album" && affectedPlaylistIds.size > 0) {
+                  for (const pid of affectedPlaylistIds) {
+                    try {
+                      const playlistState = await getPlaylistDownloadedState(pid);
+                      if (playlistState.remaining > 0 || !playlistState.confidentEmpty) continue;
+                      if (lib.isPlaylistSaved?.(pid)) lib.removeSavedPlaylist?.(pid);
+                    } catch {}
+                  }
+                }
               },
             }),
           );

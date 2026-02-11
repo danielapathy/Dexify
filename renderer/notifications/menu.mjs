@@ -63,27 +63,67 @@ export function wireNotifications() {
       return 0;
     }
   };
-  const countDownloadedForPlaylist = (playlistId) => {
+  const getPlaylistDownloadedState = async (playlistId) => {
     const idNum = Number(playlistId);
-    if (!Number.isFinite(idNum) || idNum <= 0) return 0;
+    if (!Number.isFinite(idNum) || idNum <= 0) return { remaining: 0, confidentEmpty: false };
+
+    let tracklistCount = null;
+    let tracklistTotal = 0;
     try {
-      const st = lib.load?.() || {};
-      const downloaded = st?.downloadedTracks && typeof st.downloadedTracks === "object" ? st.downloadedTracks : {};
-      let count = 0;
-      for (const row of Object.values(downloaded)) {
-        const entry = row && typeof row === "object" ? row : null;
-        if (!entry) continue;
-        const fileUrl = entry?.download?.fileUrl ? String(entry.download.fileUrl) : "";
-        if (!fileUrl) continue;
-        const uuid = entry?.download?.uuid ? String(entry.download.uuid) : "";
-        if (uuid.startsWith(`playlist_${idNum}_track_`)) count += 1;
+      if (window.dl?.getOfflineTracklist) {
+        const r = await window.dl.getOfflineTracklist({ type: "playlist", id: String(idNum) });
+        const tracks = Array.isArray(r?.data?.tracks) ? r.data.tracks : [];
+        tracklistTotal = tracks.length;
+        let count = 0;
+        for (const t of tracks) {
+          if (t && !t.__missing) count += 1;
+        }
+        tracklistCount = count;
+        if (count > 0) return { remaining: count, confidentEmpty: true };
       }
-      return count;
-    } catch {
-      return 0;
+    } catch {}
+
+    let playlistRowFound = false;
+    let listPlaylistsCount = null;
+    if (window.dl?.listPlaylists) {
+      try {
+        const res = await window.dl.listPlaylists();
+        const rows = Array.isArray(res?.playlists) ? res.playlists : [];
+        for (const row of rows) {
+          if (Number(row?.playlistId || row?.id) !== idNum) continue;
+          playlistRowFound = true;
+          const dl = Number(row?.downloaded);
+          if (Number.isFinite(dl) && dl >= 0) listPlaylistsCount = dl;
+          if (Number.isFinite(dl) && dl > 0) return { remaining: dl, confidentEmpty: true };
+          break;
+        }
+      } catch {}
     }
+
+    if (window.dl?.listDownloads) {
+      try {
+        const res = await window.dl.listDownloads();
+        const rows = Array.isArray(res?.tracks) ? res.tracks : [];
+        let count = 0;
+        for (const row of rows) {
+          const uuid = String(row?.uuid || "");
+          const fileUrl = String(row?.fileUrl || "").trim();
+          if (!fileUrl) continue;
+          if (uuid.startsWith(`playlist_${idNum}_track_`)) count += 1;
+        }
+        if (count > 0) return { remaining: count, confidentEmpty: true };
+      } catch {}
+    }
+
+    const confidentEmpty =
+      tracklistCount === 0 &&
+      tracklistTotal > 0 &&
+      playlistRowFound &&
+      Number.isFinite(listPlaylistsCount) &&
+      listPlaylistsCount === 0;
+    return { remaining: 0, confidentEmpty };
   };
-  const reconcileSavedEntitiesAfterTrackDelete = ({ albumId, playlistIds }) => {
+  const reconcileSavedEntitiesAfterTrackDelete = async ({ albumId, playlistIds }) => {
     const aid = Number(albumId);
     if (Number.isFinite(aid) && aid > 0) {
       const remaining = countDownloadedForAlbum(aid);
@@ -96,8 +136,8 @@ export function wireNotifications() {
     for (const pid0 of Array.isArray(playlistIds) ? playlistIds : []) {
       const pid = Number(pid0);
       if (!Number.isFinite(pid) || pid <= 0) continue;
-      const remaining = countDownloadedForPlaylist(pid);
-      if (remaining > 0) continue;
+      const playlistState = await getPlaylistDownloadedState(pid);
+      if (playlistState.remaining > 0 || !playlistState.confidentEmpty) continue;
       try {
         if (lib.isPlaylistSaved?.(pid)) lib.removeSavedPlaylist?.(pid);
       } catch {}
@@ -303,11 +343,22 @@ export function wireNotifications() {
           try {
             await window.dl?.scanLibrary?.();
           } catch {}
+          // Only remove from localStorage if the track is truly gone from the
+          // main process — playlist mirrors may have survived the deletion.
+          let trackStillExists = false;
+          if (window.dl?.resolveTrack) {
+            try {
+              const r = await window.dl.resolveTrack({ id: trackId });
+              trackStillExists = Boolean(r?.ok && r?.exists && r?.fileUrl);
+            } catch {}
+          }
+          if (!trackStillExists) {
+            try {
+              lib.removeDownloadedTrack?.(trackId);
+            } catch {}
+          }
           try {
-            lib.removeDownloadedTrack?.(trackId);
-          } catch {}
-          try {
-            reconcileSavedEntitiesAfterTrackDelete({
+            await reconcileSavedEntitiesAfterTrackDelete({
               albumId: reconcileAlbumId,
               playlistIds,
             });

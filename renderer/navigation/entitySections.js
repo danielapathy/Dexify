@@ -18,7 +18,11 @@ export function createEntitySections({
         return {};
       }
     })();
-    const isTrackDownloaded = (trackId) => {
+    const isTrackDownloaded = (track, trackId) => {
+      if (type === "playlist") {
+        const t = track && typeof track === "object" ? track : null;
+        if (t && Object.prototype.hasOwnProperty.call(t, "__missing")) return !Boolean(t.__missing);
+      }
       const tid = Number(trackId);
       if (!Number.isFinite(tid) || tid <= 0) return false;
       const row = downloadedTracks[String(tid)] && typeof downloadedTracks[String(tid)] === "object" ? downloadedTracks[String(tid)] : null;
@@ -38,7 +42,7 @@ export function createEntitySections({
       const trackId = Number(t?.id || t?.SNG_ID);
       if (Number.isFinite(trackId) && trackId > 0) row.dataset.trackId = String(trackId);
       if (showDownloadStatus) {
-        const downloaded = isTrackDownloaded(trackId);
+        const downloaded = isTrackDownloaded(t, trackId);
         row.dataset.downloaded = downloaded ? "1" : "0";
         if (type === "playlist" || type === "album") row.dataset.selectDisabled = downloaded ? "0" : "1";
       }

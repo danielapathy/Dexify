@@ -57,8 +57,20 @@ function ensurePlaylistTrackMirror({
   const existing = readJson(itemsJsonPath);
   const prevTrackIds = Array.isArray(existing?.trackIds) ? existing.trackIds : Array.isArray(existing) ? existing : [];
   const prevDownloads = existing?.downloads && typeof existing.downloads === "object" ? existing.downloads : {};
+  const nextTrackIds = (() => {
+    const seen = new Set();
+    const out = [];
+    for (const value of prevTrackIds) {
+      const id = toIdString(value);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(Number(id));
+    }
+    if (!seen.has(tid)) out.push(Number(tid));
+    return out;
+  })();
   const next = {
-    trackIds: prevTrackIds,
+    trackIds: nextTrackIds,
     downloads: {
       ...prevDownloads,
       [tid]: { audioPath: destAudioPath, quality: q, updatedAt: Date.now() },
@@ -68,7 +80,15 @@ function ensurePlaylistTrackMirror({
     writeJsonAtomic(itemsJsonPath, next);
   } catch {}
 
-  return { ok: true, playlistId: Number(pid), trackId: Number(tid), quality: q, audioPath: destAudioPath, itemsJsonPath };
+  return {
+    ok: true,
+    playlistId: Number(pid),
+    trackId: Number(tid),
+    quality: q,
+    audioPath: destAudioPath,
+    itemsJsonPath,
+    trackIds: nextTrackIds,
+  };
 }
 
 module.exports = { ensurePlaylistTrackMirror };

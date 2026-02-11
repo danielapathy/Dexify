@@ -93,6 +93,15 @@ export function createLibraryLocalRenderer({ list, norm }) {
     const downloadedPlaylistsById = new Map(); // playlistId -> { title, cover, total, downloaded, updatedAt }
     const playlistIdsWithDownloadedTracks = new Set();
 
+    // Helper: check if a playlist should be shown. Uses playlistIdsWithDownloadedTracks
+    // as primary source, but falls back to downloadedPlaylistsById.downloaded > 0
+    // to handle cases where the set wasn't populated correctly.
+    const playlistHasDownloadedTracks = (playlistId) => {
+      if (playlistIdsWithDownloadedTracks.has(playlistId)) return true;
+      const dl = downloadedPlaylistsById.get(playlistId);
+      return dl && Number.isFinite(dl.downloaded) && dl.downloaded > 0;
+    };
+
     try {
       if (window.dl?.listDownloads) {
         const res = await window.dl.listDownloads();
@@ -236,6 +245,9 @@ export function createLibraryLocalRenderer({ list, norm }) {
           });
         }
       }
+      for (const [playlistId, dl] of downloadedPlaylistsById.entries()) {
+        if (dl.downloaded > 0) playlistIdsWithDownloadedTracks.add(playlistId);
+      }
     } catch {}
 
     const albumDownloadProgressById = new Map();
@@ -363,11 +375,9 @@ export function createLibraryLocalRenderer({ list, norm }) {
       const downloadedAt = albumLastDownloadedAtById.get(id) || 0;
       const recentAt = Math.max(Number(recentAtBase) || 0, playedAt, downloadedAt);
 
-      const progress = albumDownloadProgressById.get(id);
       const isFull = fullyDownloadedAlbumIds.has(id);
       let subtitle = subtitleBase;
       if (isFull) subtitle = `${subtitleBase} • Downloaded`;
-      else if (progress && progress.downloaded > 0) subtitle = `${subtitleBase} • ${progress.downloaded}/${progress.total} downloaded`;
 
       const searchParts = albumSearchPartsById.get(id);
       const searchMeta = searchParts && searchParts.size > 0 ? Array.from(searchParts).join(" ") : "";
@@ -395,23 +405,17 @@ export function createLibraryLocalRenderer({ list, norm }) {
       const id = Number(p?.id);
       if (!Number.isFinite(id) || id <= 0) continue;
 
-      if (!playlistIdsWithDownloadedTracks.has(id)) continue;
+      if (!playlistHasDownloadedTracks(id)) continue;
 
       const creator = String(p?.creator || "").trim();
       const title = String(p?.title || "Playlist");
-      const dl = downloadedPlaylistsById.get(id) || null;
-      const progress =
-        dl && Number.isFinite(Number(dl.total)) && dl.total > 0
-          ? `${Math.min(dl.total, Number(dl.downloaded) || 0)}/${dl.total} downloaded`
-          : dl && (Number(dl.downloaded) || 0) > 0
-            ? "Downloaded"
-            : "";
       const subtitleBase = creator ? `Playlist • ${creator}` : "Playlist";
-      const subtitle = progress ? `${subtitleBase} • ${progress}` : subtitleBase;
+      const subtitle = subtitleBase;
       const cover = String(p?.cover || "").trim();
       const addedAt = Number(p?.addedAt) || 0;
       const playedAt = playedAtByPlaylistId.get(id) || 0;
-      const recentAt = Math.max(Number(p?.updatedAt) || 0, Number(p?.downloadedAt) || 0, dl?.updatedAt || 0, playedAt, addedAt);
+      const dlEntry = downloadedPlaylistsById.get(id) || null;
+      const recentAt = Math.max(Number(p?.updatedAt) || 0, Number(p?.downloadedAt) || 0, dlEntry?.updatedAt || 0, playedAt, addedAt);
 
       rest.push({
         category: "playlist",
@@ -432,14 +436,11 @@ export function createLibraryLocalRenderer({ list, norm }) {
     // Downloaded playlists (even if not saved) should show as a single container row to prevent album clutter.
     for (const [playlistId, dl] of downloadedPlaylistsById.entries()) {
       if (playlistIdsInRest.has(playlistId)) continue;
-      if (!playlistIdsWithDownloadedTracks.has(playlistId)) continue;
+      if (!playlistHasDownloadedTracks(playlistId)) continue;
       // Skip orphaned playlists whose metadata was deleted (title is a raw-ID fallback).
       if (!dl?.hasTitle) continue;
       const title = String(dl?.title || `Playlist #${playlistId}`).trim() || `Playlist #${playlistId}`;
-      const total = Number(dl?.total) || 0;
-      const downloaded = Number(dl?.downloaded) || 0;
-      const progress = total > 0 ? `${Math.min(total, downloaded)}/${total} downloaded` : downloaded > 0 ? "Downloaded" : "";
-      const subtitle = progress ? `Playlist • ${progress}` : "Playlist";
+      const subtitle = "Playlist";
       const cover = String(dl?.cover || "").trim();
       const playedAt = playedAtByPlaylistId.get(playlistId) || 0;
       const recentAt = Math.max(Number(dl?.updatedAt) || 0, playedAt);
@@ -464,7 +465,7 @@ export function createLibraryLocalRenderer({ list, norm }) {
     // Recently played playlists should only be visible if they have downloaded tracks.
     for (const [playlistId, playedAt] of playedAtByPlaylistId.entries()) {
       if (playlistIdsInRest.has(playlistId)) continue;
-      if (!playlistIdsWithDownloadedTracks.has(playlistId)) continue;
+      if (!playlistHasDownloadedTracks(playlistId)) continue;
       const meta = recentPlaylistMetaById.get(playlistId) || { title: "", cover: "" };
       const rawTitle = String(meta.title || "").trim();
       // Skip orphaned playlists whose metadata was deleted.

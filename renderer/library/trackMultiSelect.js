@@ -35,16 +35,6 @@ export function wireTrackMultiSelect() {
     if (!row) return false;
     return isSelectableRow(row);
   };
-  const isDownloadedFromState = (trackId, downloadedState) => {
-    const tid = Number(trackId);
-    if (!Number.isFinite(tid) || tid <= 0) return false;
-    const row =
-      downloadedState[String(tid)] && typeof downloadedState[String(tid)] === "object"
-        ? downloadedState[String(tid)]
-        : null;
-    const fileUrl = row?.download?.fileUrl ? String(row.download.fileUrl) : "";
-    return Boolean(fileUrl);
-  };
   const parsePlaylistIdFromUuid = (uuid) => {
     const raw = String(uuid || "");
     const m = /^playlist_(\d+)_track_/i.exec(raw);
@@ -75,82 +65,156 @@ export function wireTrackMultiSelect() {
       return { albumId: null, playlistId: null };
     }
   };
-  const reconcileSavedEntitiesByIds = ({ albumIds, playlistIds } = {}) => {
+  const reconcileSavedEntitiesByIds = async ({ albumIds, playlistIds } = {}) => {
     const albumSet = albumIds instanceof Set ? albumIds : new Set();
     const playlistSet = playlistIds instanceof Set ? playlistIds : new Set();
     if (albumSet.size === 0 && playlistSet.size === 0) return;
     try {
-      const st = lib.load?.() || {};
-      const downloadedState = st.downloadedTracks && typeof st.downloadedTracks === "object" ? st.downloadedTracks : {};
-      const downloadedRows = Object.values(downloadedState).filter((row) => {
-        const entry = row && typeof row === "object" ? row : null;
-        const fileUrl = entry?.download?.fileUrl ? String(entry.download.fileUrl) : "";
-        return Boolean(fileUrl);
-      });
+      // Use main process data (source of truth) instead of potentially stale local state.
+      const res = window.dl?.listDownloads ? await window.dl.listDownloads() : null;
+      const rows = Array.isArray(res?.tracks) ? res.tracks : [];
 
       for (const aid of albumSet) {
         const albumId = Number(aid);
         if (!Number.isFinite(albumId) || albumId <= 0) continue;
-        const hasRemaining = downloadedRows.some((row) => Number(row?.albumId || row?.track?.album?.id || row?.album?.id) === albumId);
+        const hasRemaining = rows.some((row) => {
+          const rowAlbumId = Number(row?.albumId || row?.album?.id || row?.track?.album?.id);
+          return rowAlbumId === albumId;
+        });
         if (!hasRemaining && lib.isAlbumSaved?.(albumId)) lib.removeSavedAlbum?.(albumId);
       }
 
       for (const pid of playlistSet) {
         const playlistId = Number(pid);
         if (!Number.isFinite(playlistId) || playlistId <= 0) continue;
-        const hasRemaining = downloadedRows.some((row) => {
-          const pRaw = Number(row?.playlistId);
-          if (Number.isFinite(pRaw) && pRaw > 0) return pRaw === playlistId;
-          const pFromUuid = parsePlaylistIdFromUuid(row?.download?.uuid);
-          return Number.isFinite(pFromUuid) && pFromUuid === playlistId;
-        });
-        if (!hasRemaining && lib.isPlaylistSaved?.(playlistId)) lib.removeSavedPlaylist?.(playlistId);
+        const playlistState = await getPlaylistDownloadedState(playlistId);
+        if (playlistState.remaining > 0 || !playlistState.confidentEmpty) continue;
+        try {
+          if (lib.isPlaylistSaved?.(playlistId)) lib.removeSavedPlaylist?.(playlistId);
+        } catch {}
       }
-    } catch {}
+    } catch {};
+  };
+  const getPlaylistDownloadedState = async (playlistId) => {
+    const idNum = Number(playlistId);
+    if (!Number.isFinite(idNum) || idNum <= 0) return { remaining: 0, confidentEmpty: false };
+
+    let tracklistCount = null;
+    let tracklistTotal = 0;
+    if (window.dl?.getOfflineTracklist) {
+      try {
+        const r = await window.dl.getOfflineTracklist({ type: "playlist", id: String(idNum) });
+        const tracks = Array.isArray(r?.data?.tracks) ? r.data.tracks : null;
+        if (tracks) {
+          tracklistTotal = tracks.length;
+          let count = 0;
+          for (const t of tracks) {
+            if (t && !t.__missing) count += 1;
+          }
+          tracklistCount = count;
+          if (count > 0) return { remaining: count, confidentEmpty: true };
+        }
+      } catch {}
+    }
+
+    let playlistRowFound = false;
+    let listPlaylistsCount = null;
+    if (window.dl?.listPlaylists) {
+      try {
+        const res = await window.dl.listPlaylists();
+        const rows = Array.isArray(res?.playlists) ? res.playlists : [];
+        for (const row of rows) {
+          if (Number(row?.playlistId || row?.id) !== idNum) continue;
+          playlistRowFound = true;
+          const dl = Number(row?.downloaded);
+          if (Number.isFinite(dl) && dl >= 0) listPlaylistsCount = dl;
+          if (Number.isFinite(dl) && dl > 0) return { remaining: dl, confidentEmpty: true };
+          break;
+        }
+      } catch {}
+    }
+
+    // Extra positive signal: some tracks may still exist via playlist mirrors
+    // even if one of the higher-level APIs is transiently stale.
+    if (window.dl?.listDownloads) {
+      try {
+        const res = await window.dl.listDownloads();
+        const rows = Array.isArray(res?.tracks) ? res.tracks : [];
+        let count = 0;
+        for (const row of rows) {
+          const uuid = String(row?.uuid || "");
+          const fileUrl = String(row?.fileUrl || "").trim();
+          if (!fileUrl) continue;
+          if (uuid.startsWith(`playlist_${idNum}_track_`)) count += 1;
+        }
+        if (count > 0) return { remaining: count, confidentEmpty: true };
+      } catch {}
+    }
+
+    const confidentEmpty =
+      tracklistCount === 0 &&
+      tracklistTotal > 0 &&
+      playlistRowFound &&
+      Number.isFinite(listPlaylistsCount) &&
+      listPlaylistsCount === 0;
+    return { remaining: 0, confidentEmpty };
   };
   const countEntityDownloadedTracks = async ({ entityType, entityId }) => {
     const type = String(entityType || "");
     const idNum = Number(entityId);
     if ((type !== "album" && type !== "playlist") || !Number.isFinite(idNum) || idNum <= 0) return 0;
 
-    const st = lib.load?.() || {};
-    const downloadedState = st.downloadedTracks && typeof st.downloadedTracks === "object" ? st.downloadedTracks : {};
+    if (type === "playlist") {
+      const playlistState = await getPlaylistDownloadedState(idNum);
+      if (playlistState.remaining > 0) return playlistState.remaining;
+      return playlistState.confidentEmpty ? 0 : Number.POSITIVE_INFINITY;
+    }
 
-    const ids = new Set();
+    // Use main process data (source of truth) instead of cross-referencing with
+    // potentially stale local state.  Tracks without audio are marked __missing
+    // by the offline tracklist resolver.
+    let countFromTracklist = 0;
     if (window.dl?.getOfflineTracklist) {
       try {
         const r = await window.dl.getOfflineTracklist({ type, id: String(idNum) });
         const tracks = Array.isArray(r?.data?.tracks) ? r.data.tracks : [];
         for (const t of tracks) {
-          const tid = Number(t?.id || t?.SNG_ID);
-          if (Number.isFinite(tid) && tid > 0) ids.add(tid);
+          if (t && !t.__missing) countFromTracklist += 1;
         }
       } catch {}
     }
+    if (countFromTracklist > 0) return countFromTracklist;
 
-    if (ids.size > 0) {
-      let downloadedCount = 0;
-      for (const tid of ids) {
-        if (isDownloadedFromState(tid, downloadedState)) downloadedCount += 1;
-      }
-      return downloadedCount;
+    // Fallback: if getOfflineTracklist returned 0 (e.g. timing issue after
+    // scanAndRebuild, or the playlist entry was transiently missing), double-
+    // check via listPlaylists / listDownloads which use independent counting.
+    if (type === "playlist" && window.dl?.listPlaylists) {
+      try {
+        const res = await window.dl.listPlaylists();
+        const rows = Array.isArray(res?.playlists) ? res.playlists : [];
+        for (const row of rows) {
+          if (Number(row?.playlistId || row?.id) === idNum) {
+            const dl = Number(row?.downloaded);
+            if (Number.isFinite(dl) && dl > 0) return dl;
+            break;
+          }
+        }
+      } catch {}
+    }
+    if (type === "album" && window.dl?.listDownloads) {
+      try {
+        const res = await window.dl.listDownloads();
+        const rows = Array.isArray(res?.tracks) ? res.tracks : [];
+        let count = 0;
+        for (const row of rows) {
+          const aid = Number(row?.albumId || row?.album?.id || row?.track?.album?.id);
+          if (aid === idNum) count += 1;
+        }
+        if (count > 0) return count;
+      } catch {}
     }
 
-    // Fallback for sparse metadata.
-    let downloadedCount = 0;
-    for (const row of Object.values(downloadedState)) {
-      const entry = row && typeof row === "object" ? row : null;
-      if (!entry) continue;
-      const fileUrl = entry?.download?.fileUrl ? String(entry.download.fileUrl) : "";
-      if (!fileUrl) continue;
-      if (type === "album") {
-        if (Number(entry?.albumId) === idNum) downloadedCount += 1;
-      } else {
-        const uuid = entry?.download?.uuid ? String(entry.download.uuid) : "";
-        if (uuid.startsWith(`playlist_${idNum}_track_`)) downloadedCount += 1;
-      }
-    }
-    return downloadedCount;
+    return 0;
   };
   const reconcileEntitySavedStateAfterDelete = async () => {
     const route = window.__navRoute && typeof window.__navRoute === "object" ? window.__navRoute : null;
@@ -161,6 +225,7 @@ export function wireTrackMultiSelect() {
 
     const remainingDownloaded = await countEntityDownloadedTracks({ entityType, entityId });
     if (remainingDownloaded > 0) return;
+    if (entityType === "playlist" && !Number.isFinite(remainingDownloaded)) return;
 
     try {
       if (entityType === "album") {
@@ -340,17 +405,34 @@ export function wireTrackMultiSelect() {
           failures.push(id);
         }
         try {
-          lib.removeDownloadedTrack?.(id);
-        } catch {}
-        try {
           window.__downloadsUI?.removeTrack?.(id);
         } catch {}
       }
+      // Rebuild main-process DB from disk BEFORE touching localStorage.
+      // This ensures that when the sidebar re-renders (triggered by
+      // removeDownloadedTrack below), listPlaylists/listDownloads return
+      // accurate data reflecting the deletions.
       try {
         await window.dl?.scanLibrary?.();
       } catch {}
+      // Now clean up localStorage.  Only remove tracks that are truly gone
+      // from the main process — playlist mirrors may have survived deletion.
+      for (const id of ids) {
+        let stillExists = false;
+        if (window.dl?.resolveTrack) {
+          try {
+            const r = await window.dl.resolveTrack({ id });
+            stillExists = Boolean(r?.ok && r?.exists && r?.fileUrl);
+          } catch {}
+        }
+        if (!stillExists) {
+          try {
+            lib.removeDownloadedTrack?.(id);
+          } catch {}
+        }
+      }
       try {
-        reconcileSavedEntitiesByIds({ albumIds: affectedAlbumIds, playlistIds: affectedPlaylistIds });
+        await reconcileSavedEntitiesByIds({ albumIds: affectedAlbumIds, playlistIds: affectedPlaylistIds });
       } catch {}
 
       try {
@@ -372,9 +454,25 @@ export function wireTrackMultiSelect() {
     if (state.context === "playlist" || state.context === "album") {
       const affectedAlbumIds = new Set();
       const affectedPlaylistIds = new Set();
+      // Include the current entity page so it's always checked for remaining tracks,
+      // even if individual track UUIDs reference a different download context.
+      try {
+        const route = window.__navRoute && typeof window.__navRoute === "object" ? window.__navRoute : null;
+        const routeType = String(route?.entityType || "");
+        const routeId = Number(route?.id);
+        if (String(route?.name || "") === "entity" && Number.isFinite(routeId) && routeId > 0) {
+          if (routeType === "album") affectedAlbumIds.add(routeId);
+          if (routeType === "playlist") affectedPlaylistIds.add(routeId);
+        }
+      } catch {}
+      // Collect refs BEFORE deleting so we know which entities to reconcile.
+      // Defer removeDownloadedTrack until AFTER scanLibrary so intermediate
+      // sidebar re-renders don't see stale main-process data.
       const failures = [];
+      const deletedTrackRefs = [];
       for (const id of ids) {
         const refs = readDownloadedTrackRefs(id);
+        deletedTrackRefs.push({ id, refs });
         if (Number.isFinite(refs.albumId) && refs.albumId > 0) affectedAlbumIds.add(refs.albumId);
         if (Number.isFinite(refs.playlistId) && refs.playlistId > 0) affectedPlaylistIds.add(refs.playlistId);
         try {
@@ -387,15 +485,33 @@ export function wireTrackMultiSelect() {
         } catch {
           failures.push(id);
         }
-        try {
-          lib.removeDownloadedTrack?.(id);
-        } catch {}
       }
+      // Rebuild main-process DB from disk BEFORE touching localStorage.
+      // This ensures that when the sidebar re-renders (triggered by
+      // removeDownloadedTrack below), listPlaylists/listDownloads return
+      // accurate data reflecting the deletions.
       try {
         await window.dl?.scanLibrary?.();
       } catch {}
+      // Now clean up localStorage.  Only remove tracks that are truly gone
+      // from the main process — playlist mirrors may have survived an album
+      // track deletion, and we must not clear their cache/stop playback.
+      for (const { id } of deletedTrackRefs) {
+        let stillExists = false;
+        if (window.dl?.resolveTrack) {
+          try {
+            const r = await window.dl.resolveTrack({ id });
+            stillExists = Boolean(r?.ok && r?.exists && r?.fileUrl);
+          } catch {}
+        }
+        if (!stillExists) {
+          try {
+            lib.removeDownloadedTrack?.(id);
+          } catch {}
+        }
+      }
       try {
-        reconcileSavedEntitiesByIds({ albumIds: affectedAlbumIds, playlistIds: affectedPlaylistIds });
+        await reconcileSavedEntitiesByIds({ albumIds: affectedAlbumIds, playlistIds: affectedPlaylistIds });
       } catch {}
       try {
         await reconcileEntitySavedStateAfterDelete();

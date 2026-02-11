@@ -27,6 +27,23 @@ function registerDownloadIpcHandlers({ ipcMain, getDzClient, loadVendoredDeemixL
   const inFlight = new Map();
   const activeDownloads = new Map();
   const cancelledGroupPrefixes = new Set();
+  const recentEvents = [];
+  const MAX_RECENT_EVENTS = 400;
+
+  const emitDownloadEvent = (payload) => {
+    const eventName = String(payload?.event || "");
+    if (eventName) {
+      recentEvents.push({
+        at: Date.now(),
+        event: eventName,
+        data: payload?.data && typeof payload.data === "object" ? payload.data : null,
+      });
+      if (recentEvents.length > MAX_RECENT_EVENTS) recentEvents.splice(0, recentEvents.length - MAX_RECENT_EVENTS);
+    }
+    try {
+      broadcastDownloadEvent(payload);
+    } catch {}
+  };
 
   const parseGroupFromPrefix = (uuidPrefixRaw) => {
     const uuidPrefix = String(uuidPrefixRaw || "").trim();
@@ -67,7 +84,7 @@ function registerDownloadIpcHandlers({ ipcMain, getDzClient, loadVendoredDeemixL
     inFlight,
     activeDownloads,
     loadVendoredDeemixLite,
-    broadcastDownloadEvent,
+    broadcastDownloadEvent: emitDownloadEvent,
     getDownloadsDir,
     ensureDir,
     sanitizeDownloadUuid,
@@ -94,7 +111,7 @@ function registerDownloadIpcHandlers({ ipcMain, getDzClient, loadVendoredDeemixL
     tryFetchArtistAlbums,
     downloadSingleTrack,
     library,
-    broadcastDownloadEvent,
+    broadcastDownloadEvent: emitDownloadEvent,
     isGroupCancelled: (prefix) => cancelledGroupPrefixes.has(String(prefix || "")),
     clearGroupCancelled: (prefix) => {
       try {
@@ -160,9 +177,7 @@ function registerDownloadIpcHandlers({ ipcMain, getDzClient, loadVendoredDeemixL
     const trackId = Number(payload?.id);
     const quality = payload?.quality ? String(payload.quality) : null;
     const res = library.removeDownloadForTrack({ trackId, quality, deleteAlbumContainer: true });
-    try {
-      broadcastDownloadEvent({ event: "libraryChanged", data: { reason: "deleteFromDisk", trackId } });
-    } catch {}
+    emitDownloadEvent({ event: "libraryChanged", data: { reason: "deleteFromDisk", trackId } });
     return res;
   });
 
@@ -171,9 +186,7 @@ function registerDownloadIpcHandlers({ ipcMain, getDzClient, loadVendoredDeemixL
     const albumId = Number(payload?.id);
     if (typeof library.deleteAlbumFromDisk !== "function") return { ok: false, error: "not_supported" };
     const res = library.deleteAlbumFromDisk({ albumId });
-    try {
-      broadcastDownloadEvent({ event: "libraryChanged", data: { reason: "deleteAlbumFromDisk", albumId } });
-    } catch {}
+    emitDownloadEvent({ event: "libraryChanged", data: { reason: "deleteAlbumFromDisk", albumId } });
     return res;
   });
 
@@ -182,9 +195,7 @@ function registerDownloadIpcHandlers({ ipcMain, getDzClient, loadVendoredDeemixL
     const playlistId = Number(payload?.id);
     if (typeof library.deletePlaylistFromDisk !== "function") return { ok: false, error: "not_supported" };
     const res = library.deletePlaylistFromDisk({ playlistId });
-    try {
-      broadcastDownloadEvent({ event: "libraryChanged", data: { reason: "deletePlaylistFromDisk", playlistId } });
-    } catch {}
+    emitDownloadEvent({ event: "libraryChanged", data: { reason: "deletePlaylistFromDisk", playlistId } });
     return res;
   });
 
@@ -227,7 +238,7 @@ function registerDownloadIpcHandlers({ ipcMain, getDzClient, loadVendoredDeemixL
       try {
         const group = parseGroupFromPrefix(uuidPrefix);
         if (group) {
-          broadcastDownloadEvent({
+          emitDownloadEvent({
             event: "downloadGroupCancelRequested",
             data: { ...group, updatedAt: Date.now() },
           });
@@ -248,7 +259,7 @@ function registerDownloadIpcHandlers({ ipcMain, getDzClient, loadVendoredDeemixL
         if (entry?.downloadObject && typeof entry.downloadObject === "object") entry.downloadObject.isCanceled = true;
       } catch {}
       try {
-        broadcastDownloadEvent({
+        emitDownloadEvent({
           event: "downloadCancelRequested",
           data: {
             uuid: String(entry?.uuid || ""),
@@ -260,6 +271,29 @@ function registerDownloadIpcHandlers({ ipcMain, getDzClient, loadVendoredDeemixL
 
     return { ok: true, cancelled: targets.length };
   });
+
+  const getDebugState = ({ maxEvents = 120 } = {}) => {
+    const eventsTake = Math.max(0, Math.min(500, Number(maxEvents) || 120));
+    const active = Array.from(activeDownloads.entries()).map(([uuid, entry]) => ({
+      uuid: String(uuid || ""),
+      trackId: Number(entry?.trackId) || null,
+      quality: String(entry?.quality || ""),
+      startedAt: Number(entry?.startedAt) || 0,
+    }));
+    const inflightKeys = Array.from(inFlight.keys()).map((k) => String(k || ""));
+    const cancelledGroups = Array.from(cancelledGroupPrefixes.values()).map((x) => String(x || ""));
+    const events = recentEvents.slice(Math.max(0, recentEvents.length - eventsTake));
+    return {
+      ok: true,
+      active,
+      inflightCount: inFlight.size,
+      inflightKeys,
+      cancelledGroups,
+      events,
+    };
+  };
+
+  return { getDebugState };
 }
 
 module.exports = { registerDownloadIpcHandlers };

@@ -134,66 +134,16 @@ export function createEntityHeaderRenderer({ lib, getDownloadQualityRaw, entityD
             return stats.total > 0 && stats.downloaded >= stats.total;
           };
 
-          const getDeleteLabel = () => {
+          const hasAnyDownloaded = () => {
             const stats = getDownloadedStats();
-            if (stats.downloaded > 0 && stats.downloaded < stats.total) {
-              return `Delete ${stats.downloaded} track${stats.downloaded === 1 ? "" : "s"} from library`;
-            }
-            return "Delete from library";
-          };
-
-          const applyDownloadButtonUi = (btn) => {
-            const full = isFullyDownloaded();
-            const stats = getDownloadedStats();
-            const partial = stats.downloaded > 0 && stats.downloaded < stats.total;
-            const icon = btn?.querySelector?.("i");
-            if (full) {
-              if (icon) icon.className = "ri-delete-bin-6-line";
-              btn.classList.remove("is-disabled");
-              btn.setAttribute("aria-disabled", "false");
-              const tip = getDeleteLabel();
-              btn.dataset.tooltip = tip;
-              btn.setAttribute("aria-label", tip);
-              btn.dataset.deleteMode = "1";
-            } else if (partial) {
-              if (icon) icon.className = "ri-download-2-line";
-              btn.classList.remove("is-disabled");
-              btn.setAttribute("aria-disabled", "false");
-              const remaining = stats.total - stats.downloaded;
-              const tip = `Download remaining ${remaining} track${remaining === 1 ? "" : "s"}`;
-              btn.dataset.tooltip = tip;
-              btn.setAttribute("aria-label", tip);
-              btn.dataset.deleteMode = "0";
-            } else {
-              if (icon) icon.className = "ri-download-2-line";
-              btn.classList.remove("is-disabled");
-              btn.setAttribute("aria-disabled", "false");
-              btn.dataset.tooltip = label;
-              btn.setAttribute("aria-label", label);
-              btn.dataset.deleteMode = "0";
-            }
+            return stats.downloaded > 0;
           };
 
           const downloadBtn = buildActionBtn({
-            icon: isFullyDownloaded() ? "ri-delete-bin-6-line" : "ri-download-2-line",
-            tooltip: isFullyDownloaded() ? getDeleteLabel() : label,
+            icon: "ri-download-2-line",
+            tooltip: label,
             onClick: async () => {
-              if (isFullyDownloaded()) {
-                try {
-                  if (type === "album" && window.dl?.deleteAlbumFromDisk) {
-                    await window.dl.deleteAlbumFromDisk({ id: entityIdNum });
-                  } else if (type === "playlist" && window.dl?.deletePlaylistFromDisk) {
-                    await window.dl.deletePlaylistFromDisk({ id: entityIdNum });
-                  }
-                  try { await window.dl?.scanLibrary?.(); } catch {}
-                } catch {}
-                for (const tid of downloadTrackIds) {
-                  try { lib.removeDownloadedTrack?.(tid); } catch {}
-                }
-                try { entityDownloadAction?.schedule?.(); } catch {}
-                applyDownloadButtonUi(downloadBtn);
-                return;
-              }
+              if (isFullyDownloaded()) return;
               if (!window.dl?.downloadUrl) return;
               try {
                 const payload = buildSavePayload();
@@ -206,8 +156,46 @@ export function createEntityHeaderRenderer({ lib, getDownloadQualityRaw, entityD
           });
           downloadBtn.dataset.action = "entity-download";
           actions.appendChild(downloadBtn);
+
+          const removeTooltip = (() => {
+            if (type === "playlist") return "Delete playlist";
+            const rt = normalizeRecordType(data?.record_type || data?.recordType);
+            if (rt === "single") return "Delete single";
+            if (rt === "ep") return "Delete EP";
+            if (rt === "compilation") return "Delete compilation";
+            return "Delete album";
+          })();
+
+          const removeBtn = buildActionBtn({
+            icon: "ri-delete-bin-6-line",
+            tooltip: removeTooltip,
+            onClick: async () => {
+              try { window.__trackMultiSelect?.exit?.(); } catch {}
+              try {
+                if (type === "album" && window.dl?.deleteAlbumFromDisk) {
+                  await window.dl.deleteAlbumFromDisk({ id: entityIdNum });
+                } else if (type === "playlist" && window.dl?.deletePlaylistFromDisk) {
+                  await window.dl.deletePlaylistFromDisk({ id: entityIdNum });
+                }
+                try { await window.dl?.scanLibrary?.(); } catch {}
+              } catch {}
+              for (const tid of downloadTrackIds) {
+                try { lib.removeDownloadedTrack?.(tid); } catch {}
+              }
+              try {
+                if (type === "album") lib.removeSavedAlbum?.(entityIdNum);
+                else lib.removeSavedPlaylist?.(entityIdNum);
+              } catch {}
+              try { entityDownloadAction?.schedule?.(); } catch {}
+            },
+          });
+          removeBtn.classList.add("entity-remove-btn");
+          if (!hasAnyDownloaded()) removeBtn.classList.add("is-hidden");
+          removeBtn.dataset.action = "entity-remove";
+          actions.appendChild(removeBtn);
+
           try {
-            entityDownloadAction.bind(entry, downloadBtn, { label, trackIds: downloadTrackIds });
+            entityDownloadAction.bind(entry, downloadBtn, { label, trackIds: downloadTrackIds, removeBtn });
           } catch {}
         }
         meta.appendChild(actions);

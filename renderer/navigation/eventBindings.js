@@ -69,7 +69,6 @@ export function wireNavigationEventBindings({
     try {
       searchInput.focus();
     } catch {}
-    void navigate(getHomeRoute({ scrollTop: 0 }), { replace: true });
   });
 
   searchSubmitBtn.addEventListener("click", () => {

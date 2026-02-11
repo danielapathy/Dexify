@@ -17,6 +17,9 @@ module.exports = function createWindows({ rootDir }) {
 
   // Default: DevTools closed (can be enabled with AUTO_OPEN_DEVTOOLS=true).
   const shouldOpenDevTools = env.AUTO_OPEN_DEVTOOLS;
+  const argv = Array.isArray(process.argv) ? process.argv : [];
+  const hasArg = (flag) => argv.some((a) => a === flag);
+  const isUiDebug = Boolean(env.DEXIFY_UI_DEBUG) || hasArg("--ui-debug");
 
   function createMainWindow() {
     const isMac = process.platform === "darwin";
@@ -26,6 +29,7 @@ module.exports = function createWindows({ rootDir }) {
       minWidth: 1024,
       minHeight: 640,
       backgroundColor: "#0b0b0b",
+      title: "Dexify",
       titleBarStyle: isMac ? "hidden" : "default",
       ...(isMac ? { trafficLightPosition: { x: 18, y: 22 } } : {}),
       ...(appIcon ? { icon: appIcon } : {}),
@@ -42,7 +46,6 @@ module.exports = function createWindows({ rootDir }) {
       const out = {};
       const startRouteFromEnv = String(process.env.DEXIFY_START_ROUTE || "").trim();
       if (startRouteFromEnv) out.startRoute = startRouteFromEnv;
-      const argv = Array.isArray(process.argv) ? process.argv : [];
       const startRouteArg = argv.find((a) => typeof a === "string" && a.startsWith("--start-route="));
       if (startRouteArg) {
         const raw = String(startRouteArg.split("=").slice(1).join("=")).trim();
@@ -62,6 +65,7 @@ module.exports = function createWindows({ rootDir }) {
         const n = Number(raw);
         if (Number.isFinite(n) && n > 0) out.openArtist = String(Math.trunc(n));
       }
+      if (isUiDebug) out.uiDebug = "1";
       return out;
     })();
 
@@ -82,6 +86,7 @@ module.exports = function createWindows({ rootDir }) {
           parent: win,
           modal: false,
           backgroundColor: "#0b0b0b",
+          title: "Dexify",
           autoHideMenuBar: true,
           ...(appIcon ? { icon: appIcon } : {}),
           webPreferences: {
@@ -104,6 +109,7 @@ module.exports = function createWindows({ rootDir }) {
           parent: win,
           modal: false,
           backgroundColor: "#0b0b0b",
+          title: "Dexify",
           autoHideMenuBar: true,
           ...(appIcon ? { icon: appIcon } : {}),
           webPreferences: {
@@ -121,6 +127,7 @@ module.exports = function createWindows({ rootDir }) {
               parent: child,
               modal: false,
               backgroundColor: "#0b0b0b",
+              title: "Dexify",
               autoHideMenuBar: true,
               ...(appIcon ? { icon: appIcon } : {}),
               webPreferences: {
@@ -153,6 +160,7 @@ module.exports = function createWindows({ rootDir }) {
       modal: false,
       resizable: true,
       backgroundColor: "#0b0b0b",
+      title: "Dexify",
       ...(appIcon ? { icon: appIcon } : {}),
       webPreferences: {
         contextIsolation: true,
@@ -179,6 +187,7 @@ module.exports = function createWindows({ rootDir }) {
           parent: popup,
           modal: false,
           backgroundColor: "#0b0b0b",
+          title: "Dexify",
           autoHideMenuBar: true,
           ...(appIcon ? { icon: appIcon } : {}),
           webPreferences: {
@@ -203,6 +212,7 @@ module.exports = function createWindows({ rootDir }) {
               parent: child,
               modal: false,
               backgroundColor: "#0b0b0b",
+              title: "Dexify",
               autoHideMenuBar: true,
               ...(appIcon ? { icon: appIcon } : {}),
               webPreferences: {

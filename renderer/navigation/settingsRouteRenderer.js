@@ -6,6 +6,8 @@ export function createSettingsRouteRenderer({
   setDownloadQualityRaw,
   clampDownloadQualityForCapabilities,
   downloadQualityKey,
+  getNormalizeAudioSetting,
+  setNormalizeAudioSetting,
 }) {
   let settingsWired = false;
 
@@ -15,6 +17,7 @@ export function createSettingsRouteRenderer({
     const userEl = document.getElementById("settingsSessionUser");
     const dirEl = document.getElementById("settingsDownloadDir");
     const qualityEl = document.getElementById("settingsQuality");
+    const normalizeEl = document.getElementById("settingsNormalizeAudio");
 
     const setStatus = (text) => {
       if (statusEl) statusEl.textContent = String(text || "");
@@ -63,14 +66,16 @@ export function createSettingsRouteRenderer({
           setDownloadQualityRaw(effective);
         }
       } catch {}
-
-      qualityEl.addEventListener("change", () => {
-        setDownloadQualityRaw(qualityEl.value);
-      });
     }
 
     if (dirEl) {
-      dirEl.textContent = "Session downloads (.session/downloads)";
+      dirEl.textContent = ".session/downloads";
+    }
+
+    if (normalizeEl) {
+      const enabled = Boolean(getNormalizeAudioSetting?.({ fallback: false }));
+      normalizeEl.dataset.on = enabled ? "true" : "false";
+      normalizeEl.setAttribute("aria-pressed", enabled ? "true" : "false");
     }
 
     if (!settingsWired) {
@@ -85,6 +90,19 @@ export function createSettingsRouteRenderer({
 
       const logoutBtn = document.getElementById("settingsLogout");
       logoutBtn?.addEventListener?.("click", () => void window.auth?.logout?.());
+
+      qualityEl?.addEventListener?.("change", () => {
+        setDownloadQualityRaw(qualityEl.value);
+      });
+
+      normalizeEl?.addEventListener?.("click", (event) => {
+        event.preventDefault();
+        const cur = Boolean(getNormalizeAudioSetting?.({ fallback: false }));
+        const next = !cur;
+        setNormalizeAudioSetting?.(next);
+        normalizeEl.dataset.on = next ? "true" : "false";
+        normalizeEl.setAttribute("aria-pressed", next ? "true" : "false");
+      });
     }
 
     // Keep the constant referenced for parity with previous logic and local storage key expectations.
