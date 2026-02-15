@@ -28,6 +28,12 @@ export function createEntityHeaderRenderer({ lib, getDownloadQualityRaw, entityD
       btn.setAttribute("aria-label", tooltip);
       btn.dataset.tooltip = tooltip;
       btn.innerHTML = `<i class="${icon}" aria-hidden="true"></i>`;
+
+      const dbgTag = String(tooltip || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      btn.dataset.dbg = `entity-action-${dbgTag}`;
+      btn.dataset.dbgType = "button";
+      btn.dataset.dbgDesc = String(tooltip || "");
+
       if (typeof onClick === "function") {
         btn.addEventListener("click", (event) => {
           event.preventDefault();

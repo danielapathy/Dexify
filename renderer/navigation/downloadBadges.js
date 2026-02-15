@@ -85,7 +85,8 @@ export function createDownloadBadges({ lib, entityView }) {
     else setIcon(badge, "ri-download-2-line");
 
     r.dataset.downloaded = downloaded ? "1" : "0";
-    if (r.closest(".entity-tracks--dl")) r.dataset.selectDisabled = downloaded ? "0" : "1";
+    const dlList = r.closest(".entity-tracks--dl");
+    if (dlList && !dlList.dataset.customPlaylist) r.dataset.selectDisabled = downloaded ? "0" : "1";
   };
 
   const applyToTrackId = (trackId) => {

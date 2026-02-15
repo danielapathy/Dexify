@@ -25,6 +25,8 @@ import { createSettingsRouteRenderer } from "./navigation/settingsRouteRenderer.
 import { createSearchRenderer } from "./navigation/searchRenderer.js";
 import { createHomeRoute, getInitialRouteName, getRouteKey } from "./navigation/routeState.js";
 import { createViewController } from "./navigation/viewController.js";
+import { renderCustomPlaylistPage } from "./navigation/customPlaylistRenderer.js";
+import { renderFolderPage } from "./navigation/folderRenderer.js";
 
 export function wireNavigation() {
   const lib = getLocalLibrary();
@@ -208,16 +210,37 @@ export function wireNavigation() {
     if (!entry) return null;
     entityCache.mountEntry(entry);
     const shouldRefresh =
-      forceRefresh || Boolean(route?.refresh) || route?.name === "liked" || route?.name === "downloads" || !entry.renderedAt;
+      forceRefresh || Boolean(route?.refresh) || route?.name === "liked" || route?.name === "downloads" || route?.name === "customPlaylist" || route?.name === "folder" || !entry.renderedAt;
     if (shouldRefresh) {
-      const ok =
-        route?.name === "liked"
-          ? await renderLikedInto(entry.root, entry)
-          : route?.name === "downloads"
-            ? await renderDownloadsInto(entry.root, entry)
-          : route?.name === "page"
-            ? await renderPageInto(entry.root, route, entry)
-            : await renderEntityInto(entry.root, route, entry);
+      let ok = false;
+      if (route?.name === "liked") {
+        ok = await renderLikedInto(entry.root, entry);
+      } else if (route?.name === "downloads") {
+        ok = await renderDownloadsInto(entry.root, entry);
+      } else if (route?.name === "page") {
+        ok = await renderPageInto(entry.root, route, entry);
+      } else if (route?.name === "customPlaylist") {
+        ok = renderCustomPlaylistPage(entry.root, route, { lib, registerTrackList, formatDuration, navigate, downloadBadges });
+        // Extract accent color from custom playlist cover for background gradient
+        if (ok) {
+          const cpId = String(route?.id || "");
+          const cp = cpId ? lib.getCustomPlaylist(cpId) : null;
+          const cpCover = String(cp?.cover || "").trim();
+          entityCache.setAccent(entry, null);
+          if (cpCover) {
+            extractAverageColorFromImageUrl(cpCover)
+              .then((rgb) => {
+                if (!rgb) return;
+                entityCache.setAccent(entry, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.72)`);
+              })
+              .catch(() => {});
+          }
+        }
+      } else if (route?.name === "folder") {
+        ok = await renderFolderPage(entry.root, route, { lib, navigate });
+      } else {
+        ok = await renderEntityInto(entry.root, route, entry);
+      }
       entry.renderedAt = ok ? Date.now() : 0;
     }
     return entry;
@@ -249,7 +272,7 @@ export function wireNavigation() {
       return;
     }
 
-    if (name === "entity" || name === "liked" || name === "downloads" || name === "page") {
+    if (name === "entity" || name === "liked" || name === "downloads" || name === "page" || name === "customPlaylist" || name === "folder") {
       showView("entity", { scrollTop: route?.scrollTop });
       await showEntityRoute(route);
       setNavButtons();

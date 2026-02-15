@@ -1,6 +1,12 @@
 export function resolvePageContext() {
   const route = window.__navRoute && typeof window.__navRoute === "object" ? window.__navRoute : null;
   const name = String(route?.name || "").trim();
+  if (name === "customPlaylist") {
+    return { type: "customPlaylist", id: String(route?.id || "") };
+  }
+  if (name === "folder") {
+    return { type: "folder", id: String(route?.id || "") };
+  }
   if (name === "entity") {
     const entityType = String(route?.entityType || "").trim();
     return entityType || "entity";

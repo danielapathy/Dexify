@@ -74,6 +74,11 @@
     clearAppState: () => ipcRenderer.invoke("app:clearAppState"),
   });
 
+  contextBridge.exposeInMainWorld("mobilePreview", {
+    enable: () => ipcRenderer.invoke("mobilePreview:enable"),
+    disable: () => ipcRenderer.invoke("mobilePreview:disable"),
+  });
+
   contextBridge.exposeInMainWorld("dl", {
     downloadTrack: makeInvokeWithParams("dl:downloadTrack"),
     resolveTrack: makeInvokeWithParams("dl:resolveTrack"),

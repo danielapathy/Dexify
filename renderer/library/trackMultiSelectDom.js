@@ -10,6 +10,7 @@ export function getMainScrollEl() {
 export function getActiveContext() {
   const name = String(window.__navRoute?.name || "");
   if (name === "liked" || name === "downloads") return name;
+  if (name === "customPlaylist") return "customPlaylist";
   if (name === "entity") {
     const entityType = String(window.__navRoute?.entityType || "").trim();
     if (entityType === "album") return "album";
@@ -20,6 +21,13 @@ export function getActiveContext() {
 
 export function findActiveTrackList(entityView) {
   if (!entityView) return null;
+  // Prefer the track list inside the currently active entity page to avoid
+  // picking up a stale list from a page that is still animating out.
+  const activePage = entityView.querySelector('.entity-page.is-active');
+  if (activePage) {
+    const list = activePage.querySelector('.entity-tracks[data-cm-tracklist="1"]');
+    if (list) return list;
+  }
   return entityView.querySelector('.entity-tracks[data-cm-tracklist="1"]');
 }
 

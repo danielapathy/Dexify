@@ -28,15 +28,15 @@
         <header class="topbar">
           <div class="topbar__left">
             <div class="nav-arrows" aria-label="Navigation">
-              <button class="icon-btn icon-btn--nav" type="button" aria-label="Back" data-nav="back">
+              <button class="icon-btn icon-btn--nav" type="button" aria-label="Back" data-nav="back" data-dbg="nav-back" data-dbg-type="button" data-dbg-desc="Navigate back">
                 <i class="ri-arrow-left-s-line icon" aria-hidden="true"></i>
               </button>
-              <button class="icon-btn icon-btn--nav" type="button" aria-label="Forward" data-nav="forward">
+              <button class="icon-btn icon-btn--nav" type="button" aria-label="Forward" data-nav="forward" data-dbg="nav-forward" data-dbg-type="button" data-dbg-desc="Navigate forward">
                 <i class="ri-arrow-right-s-line icon" aria-hidden="true"></i>
               </button>
             </div>
 
-		            <button class="home-btn" type="button" aria-label="Home" data-nav="home">
+		            <button class="home-btn" type="button" aria-label="Home" data-nav="home" data-dbg="nav-home" data-dbg-type="button" data-dbg-desc="Go home">
 		              <i class="ri-home-5-line icon icon--solid" aria-hidden="true"></i>
 		            </button>
 	          </div>
@@ -54,6 +54,7 @@
 	                aria-label="Search"
 	                autocomplete="off"
 	                spellcheck="false"
+	                data-dbg="top-search-input" data-dbg-type="input" data-dbg-desc="Main search input"
 	              />
 		              <button class="icon-btn search__clearBtn" id="topSearchClear" type="button" aria-label="Clear search" hidden>
 		                <i class="ri-close-line icon" aria-hidden="true"></i>
@@ -133,7 +134,7 @@
                   <span>Your Library</span>
                 </div>
                 <div class="library__actions">
-                  <button class="icon-btn icon-btn--soft" type="button" aria-label="Create">
+                  <button class="icon-btn icon-btn--soft" type="button" aria-label="Create" data-dbg="create-menu-btn" data-dbg-type="button" data-dbg-desc="Create new playlist or folder">
                     <i class="ri-add-line icon" aria-hidden="true"></i>
                   </button>
                   <button class="icon-btn icon-btn--soft" type="button" aria-label="Expand">
@@ -185,6 +186,7 @@
                     aria-label="Search in Your Library"
                     autocomplete="off"
                     spellcheck="false"
+                    data-dbg="library-search-input" data-dbg-type="input" data-dbg-desc="Search in Your Library"
                   />
                   <button class="icon-btn library-search__clearBtn" id="librarySearchClearBtn" type="button" aria-label="Clear search">
                     <i class="ri-close-line icon" aria-hidden="true"></i>
@@ -197,7 +199,7 @@
                 </button>
               </div>
 
-              <div class="library__list" id="libraryList" role="list">
+              <div class="library__list" id="libraryList" role="list" data-dbg="library-list" data-dbg-type="list" data-dbg-desc="Library items list">
                 <a class="library-item is-active" href="#" role="listitem" data-category="playlist" data-route="liked">
                   <div class="cover cover--liked" aria-hidden="true">
                     <i class="ri-heart-fill cover__icon" aria-hidden="true"></i>
@@ -467,26 +469,26 @@
               <div class="player__title" id="playerTitle"></div>
               <div class="player__artist" id="playerArtist"></div>
             </div>
-            <button class="icon-btn player__track-el" id="playerLikeBtn" type="button" aria-label="Save to your library">
+            <button class="icon-btn player__track-el" id="playerLikeBtn" type="button" aria-label="Save to your library" data-dbg="player-like" data-dbg-type="button" data-dbg-desc="Like current track">
               <i class="ri-heart-line icon" aria-hidden="true"></i>
             </button>
           </div>
 
           <div class="player__center">
             <div class="player__controls" aria-label="Playback controls">
-              <button class="icon-btn" type="button" aria-label="Shuffle">
+              <button class="icon-btn" type="button" aria-label="Shuffle" data-dbg="player-shuffle" data-dbg-type="button" data-dbg-desc="Shuffle">
                 <i class="ri-shuffle-line icon" aria-hidden="true"></i>
               </button>
-              <button class="icon-btn" id="playerPrevBtn" type="button" aria-label="Previous">
+              <button class="icon-btn" id="playerPrevBtn" type="button" aria-label="Previous" data-dbg="player-prev" data-dbg-type="button" data-dbg-desc="Previous track">
                 <i class="ri-skip-back-line icon" aria-hidden="true"></i>
               </button>
-              <button class="play-btn" id="playerPlayBtn" type="button" aria-label="Play/Pause" data-play="paused">
+              <button class="play-btn" id="playerPlayBtn" type="button" aria-label="Play/Pause" data-play="paused" data-dbg="player-play" data-dbg-type="button" data-dbg-desc="Play or pause">
                 <i class="ri-play-fill icon icon--solid" aria-hidden="true" data-icon="playpause"></i>
               </button>
-              <button class="icon-btn" id="playerNextBtn" type="button" aria-label="Next">
+              <button class="icon-btn" id="playerNextBtn" type="button" aria-label="Next" data-dbg="player-next" data-dbg-type="button" data-dbg-desc="Next track">
                 <i class="ri-skip-forward-line icon" aria-hidden="true"></i>
               </button>
-              <button class="icon-btn" type="button" aria-label="Repeat">
+              <button class="icon-btn" type="button" aria-label="Repeat" data-dbg="player-repeat" data-dbg-type="button" data-dbg-desc="Repeat">
                 <i class="ri-repeat-2-line icon" aria-hidden="true"></i>
               </button>
             </div>
@@ -514,6 +516,90 @@
 	            </div>
 	          </div>
         </footer>
+      </div>
+    </div>
+
+    <!-- Mobile bottom navigation -->
+    <nav class="mobile-nav" id="mobileNav" aria-label="Mobile navigation">
+      <button class="mobile-nav__item is-active" type="button" data-mobile-nav="home" aria-label="Home">
+        <i class="ri-home-5-fill mobile-nav__icon" aria-hidden="true"></i>
+        <span class="mobile-nav__label">Home</span>
+      </button>
+      <button class="mobile-nav__item" type="button" data-mobile-nav="search" aria-label="Search">
+        <i class="ri-search-line mobile-nav__icon" aria-hidden="true"></i>
+        <span class="mobile-nav__label">Search</span>
+      </button>
+      <button class="mobile-nav__item" type="button" data-mobile-nav="library" aria-label="Your Library">
+        <i class="ri-play-list-2-line mobile-nav__icon" aria-hidden="true"></i>
+        <span class="mobile-nav__label">Your Library</span>
+      </button>
+      <button class="mobile-nav__item" type="button" data-mobile-nav="create" aria-label="Create">
+        <i class="ri-add-circle-line mobile-nav__icon" aria-hidden="true"></i>
+        <span class="mobile-nav__label">Create</span>
+      </button>
+    </nav>
+
+    <!-- Mobile library drawer (slides up from bottom) -->
+    <div class="mobile-library-drawer" id="mobileLibraryDrawer">
+      <div class="mobile-library-drawer__panel">
+        <div class="mobile-library-drawer__handle"></div>
+        <div class="mobile-library-drawer__header">
+          <div class="mobile-library-drawer__title">Your Library</div>
+          <button class="icon-btn" type="button" id="mobileLibraryClose" aria-label="Close library">
+            <i class="ri-close-line icon" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div class="mobile-library-drawer__list" id="mobileLibraryList"></div>
+      </div>
+    </div>
+
+    <!-- Mobile full-screen player -->
+    <div class="mobile-player-full" id="mobilePlayerFull">
+      <div class="mobile-player-full__header">
+        <button class="mobile-player-full__dismiss" type="button" id="mobilePlayerDismiss" aria-label="Minimize player">
+          <i class="ri-arrow-down-s-line icon" aria-hidden="true"></i>
+        </button>
+        <span class="mobile-player-full__context" id="mobilePlayerContext">Now Playing</span>
+        <button class="icon-btn" type="button" aria-label="More options">
+          <i class="ri-more-2-fill icon" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="mobile-player-full__cover">
+        <img id="mobilePlayerCover" alt="" src="" />
+      </div>
+      <div class="mobile-player-full__meta">
+        <div class="mobile-player-full__title" id="mobilePlayerTitle"></div>
+        <div class="mobile-player-full__artist" id="mobilePlayerArtist"></div>
+      </div>
+      <div class="mobile-player-full__progress">
+        <span class="time" id="mobilePlayerTimeCurrent">0:00</span>
+        <input class="range" id="mobilePlayerSeek" type="range" min="0" max="1" value="0" step="1" aria-label="Seek" />
+        <span class="time" id="mobilePlayerTimeTotal">0:00</span>
+      </div>
+      <div class="mobile-player-full__controls">
+        <button class="icon-btn" type="button" aria-label="Shuffle">
+          <i class="ri-shuffle-line icon" aria-hidden="true"></i>
+        </button>
+        <button class="icon-btn" id="mobilePlayerPrev" type="button" aria-label="Previous">
+          <i class="ri-skip-back-fill icon" aria-hidden="true"></i>
+        </button>
+        <button class="play-btn" id="mobilePlayerPlayBtn" type="button" aria-label="Play/Pause" data-play="paused">
+          <i class="ri-play-fill icon icon--solid" aria-hidden="true" data-icon="playpause"></i>
+        </button>
+        <button class="icon-btn" id="mobilePlayerNext" type="button" aria-label="Next">
+          <i class="ri-skip-forward-fill icon" aria-hidden="true"></i>
+        </button>
+        <button class="icon-btn" type="button" aria-label="Repeat">
+          <i class="ri-repeat-2-line icon" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="mobile-player-full__extra">
+        <button class="icon-btn" id="mobilePlayerLikeBtn" type="button" aria-label="Save to library">
+          <i class="ri-heart-line icon" aria-hidden="true" data-icon="like"></i>
+        </button>
+        <button class="icon-btn" type="button" aria-label="Share">
+          <i class="ri-share-line icon" aria-hidden="true"></i>
+        </button>
       </div>
     </div>
 

@@ -80,7 +80,7 @@ export function wireContextMenus() {
     } catch {}
   };
 
-  const { buildTrackMenu, buildCardMenu } = createContextMenuBuilders({ lib });
+  const { buildTrackMenu, buildCardMenu, buildCustomPlaylistSidebarMenu, buildFolderSidebarMenu } = createContextMenuBuilders({ lib });
 
   try {
     window.__contextMenu = {
@@ -154,6 +154,16 @@ export function wireContextMenus() {
 
       if (libItem) {
         const route = String(libItem.dataset.route || "");
+        if (route === "customPlaylist" && libItem.dataset.customPlaylistId) {
+          const items = buildCustomPlaylistSidebarMenu({ customPlaylistId: libItem.dataset.customPlaylistId });
+          if (items.length > 0) show({ x: event.clientX, y: event.clientY, items });
+          return;
+        }
+        if (route === "folder" && libItem.dataset.folderId) {
+          const items = buildFolderSidebarMenu({ folderId: libItem.dataset.folderId });
+          if (items.length > 0) show({ x: event.clientX, y: event.clientY, items });
+          return;
+        }
         if (route === "saved-track") {
           const trackId = Number(libItem.dataset.trackId);
           const t = lib.getSavedTrack?.(trackId);

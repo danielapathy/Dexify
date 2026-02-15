@@ -283,6 +283,8 @@ export function createLibraryLocalRenderer({ list, norm }) {
       sortRecent,
       sortAdded,
       searchMeta,
+      customPlaylistId,
+      folderId,
     }) => {
       const a = createLibraryItemElement({
         category,
@@ -300,8 +302,11 @@ export function createLibraryLocalRenderer({ list, norm }) {
         sortRecent: String(Number(sortRecent) || 0),
         sortAdded: String(Number(sortAdded) || 0),
         searchMeta: searchMeta ? normalize(searchMeta) : "",
+        customPlaylistId,
+        folderId,
       });
       targetList.appendChild(a);
+      return a;
     };
 
     addItem({
@@ -332,6 +337,16 @@ export function createLibraryLocalRenderer({ list, norm }) {
 
     const rest = [];
 
+    // Build set of items that belong to any folder (to hide from top-level)
+    const foldersState = state.folders && typeof state.folders === "object" ? state.folders : {};
+    const folderChildKeys = new Set();
+    for (const f of Object.values(foldersState)) {
+      const children = Array.isArray(f?.children) ? f.children : [];
+      for (const c of children) {
+        if (c?.type && c?.id) folderChildKeys.add(`${c.type}:${c.id}`);
+      }
+    }
+
     const savedTracks = Object.values(state.savedTracks || {});
     const albumAddedAtById = new Map();
     for (const t of savedTracks) {
@@ -359,6 +374,7 @@ export function createLibraryLocalRenderer({ list, norm }) {
     for (const a of savedAlbums) {
       const id = Number(a?.id);
       if (!Number.isFinite(id) || id <= 0) continue;
+      if (folderChildKeys.has(`album:${id}`)) continue;
 
       const hasDownloads = albumDownloadedTrackIdsById.has(id) && albumDownloadedTrackIdsById.get(id).size > 0;
       if (!hasDownloads) continue;
@@ -404,6 +420,7 @@ export function createLibraryLocalRenderer({ list, norm }) {
     for (const p of savedPlaylists) {
       const id = Number(p?.id);
       if (!Number.isFinite(id) || id <= 0) continue;
+      if (folderChildKeys.has(`playlist:${id}`)) continue;
 
       if (!playlistHasDownloadedTracks(id)) continue;
 
@@ -436,6 +453,7 @@ export function createLibraryLocalRenderer({ list, norm }) {
     // Downloaded playlists (even if not saved) should show as a single container row to prevent album clutter.
     for (const [playlistId, dl] of downloadedPlaylistsById.entries()) {
       if (playlistIdsInRest.has(playlistId)) continue;
+      if (folderChildKeys.has(`playlist:${playlistId}`)) continue;
       if (!playlistHasDownloadedTracks(playlistId)) continue;
       // Skip orphaned playlists whose metadata was deleted (title is a raw-ID fallback).
       if (!dl?.hasTitle) continue;
@@ -465,6 +483,7 @@ export function createLibraryLocalRenderer({ list, norm }) {
     // Recently played playlists should only be visible if they have downloaded tracks.
     for (const [playlistId, playedAt] of playedAtByPlaylistId.entries()) {
       if (playlistIdsInRest.has(playlistId)) continue;
+      if (folderChildKeys.has(`playlist:${playlistId}`)) continue;
       if (!playlistHasDownloadedTracks(playlistId)) continue;
       const meta = recentPlaylistMetaById.get(playlistId) || { title: "", cover: "" };
       const rawTitle = String(meta.title || "").trim();
@@ -492,6 +511,7 @@ export function createLibraryLocalRenderer({ list, norm }) {
     // Recently played albums should only be visible if they have downloaded tracks.
     for (const [albumId, playedAt] of playedAtByAlbumId.entries()) {
       if (albumIdsInRest.has(albumId)) continue;
+      if (folderChildKeys.has(`album:${albumId}`)) continue;
       if (fullyDownloadedAlbumIds.has(albumId)) continue;
 
       const hasDownloads = albumDownloadedTrackIdsById.has(albumId) && albumDownloadedTrackIdsById.get(albumId).size > 0;
@@ -522,6 +542,7 @@ export function createLibraryLocalRenderer({ list, norm }) {
     }
 
     for (const albumId of Array.from(autoAddDownloadedAlbumIds)) {
+      if (folderChildKeys.has(`album:${albumId}`)) continue;
       if (state.savedAlbums && typeof state.savedAlbums === "object" && state.savedAlbums[String(albumId)]) continue;
 
       const meta = albumMetaById.get(albumId) || { title: "", artist: "", cover: "", recordType: "" };
@@ -557,8 +578,168 @@ export function createLibraryLocalRenderer({ list, norm }) {
       albumIdsInRest.add(albumId);
     }
 
+    // Custom playlists
+    const customPlaylists = Object.values(state.customPlaylists || {});
+    for (const cp of customPlaylists) {
+      const id = String(cp?.id || "");
+      if (!id) continue;
+      if (folderChildKeys.has(`customPlaylist:${id}`)) continue;
+      const title = String(cp?.title || "Untitled Playlist");
+      const trackCount = Array.isArray(cp?.trackIds) ? cp.trackIds.length : 0;
+      const subtitle = `Playlist • ${trackCount} track${trackCount !== 1 ? "s" : ""}`;
+      const cover = String(cp?.cover || "").trim();
+      const createdAt = Number(cp?.createdAt) || 0;
+      const updatedAt = Number(cp?.updatedAt) || 0;
+      const playedAt = Number(cp?.playedAt) || 0;
+      const recentAt = Math.max(updatedAt, playedAt, createdAt);
+
+      rest.push({
+        category: "playlist",
+        title,
+        subtitle,
+        sortCreator: "",
+        imageUrl: cover,
+        entityType: null,
+        entityId: null,
+        route: "customPlaylist",
+        trackId: null,
+        sortRecent: recentAt,
+        sortAdded: createdAt,
+        searchMeta: title,
+        customPlaylistId: id,
+      });
+    }
+
+    // Folders
+    const folders = Object.values(state.folders || {});
+    for (const f of folders) {
+      const id = String(f?.id || "");
+      if (!id) continue;
+      const title = String(f?.title || "Untitled Folder");
+      const childCount = Array.isArray(f?.children) ? f.children.length : 0;
+      const subtitle = `${childCount} item${childCount !== 1 ? "s" : ""}`;
+      const createdAt = Number(f?.createdAt) || 0;
+      const updatedAt = Number(f?.updatedAt) || 0;
+      const playedAt = Number(f?.playedAt) || 0;
+      const recentAt = Math.max(updatedAt, playedAt, createdAt);
+
+      rest.push({
+        category: "folder",
+        title,
+        subtitle,
+        sortCreator: "",
+        imageUrl: "",
+        entityType: null,
+        entityId: null,
+        route: "folder",
+        trackId: null,
+        sortRecent: recentAt,
+        sortAdded: createdAt,
+        searchMeta: title,
+        folderId: id,
+      });
+    }
+
+    // Folder expand state helpers
+    const FOLDER_EXPAND_KEY = "spotify.folderExpandState";
+    const getFolderExpandState = (fid) => {
+      try {
+        const raw = localStorage.getItem(FOLDER_EXPAND_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return Boolean(parsed[fid]);
+      } catch { return false; }
+    };
+
+    // Resolve a folder child into addItem-compatible data
+    const resolveFolderChild = (child) => {
+      if (!child?.type || !child?.id) return null;
+      if (child.type === "customPlaylist") {
+        const cp = state.customPlaylists?.[child.id];
+        if (!cp) return null;
+        const title = String(cp.title || "Untitled Playlist");
+        const trackCount = Array.isArray(cp.trackIds) ? cp.trackIds.length : 0;
+        return {
+          category: "playlist",
+          title,
+          subtitle: `Playlist • ${trackCount} track${trackCount !== 1 ? "s" : ""}`,
+          imageUrl: String(cp.cover || "").trim(),
+          route: "customPlaylist",
+          customPlaylistId: child.id,
+          sortRecent: 0,
+          sortAdded: 0,
+          searchMeta: title,
+        };
+      }
+      if (child.type === "album") {
+        const album = state.savedAlbums?.[String(child.id)];
+        const meta = albumMetaById.get(Number(child.id));
+        const title = album ? String(album.title || "Album") : meta ? String(meta.title || "Album") : `Album #${child.id}`;
+        const artist = album ? String(album.artist || "") : meta ? String(meta.artist || "") : "";
+        const cover = album ? String(album.cover || "") : meta ? String(meta.cover || "") : "";
+        const typeLabel = formatRecordTypeLabel(album?.recordType || album?.record_type || meta?.recordType, { fallback: "Album" });
+        return {
+          category: "album",
+          title,
+          subtitle: artist ? `${typeLabel} • ${artist}` : typeLabel,
+          imageUrl: cover,
+          entityType: "album",
+          entityId: Number(child.id),
+          sortRecent: 0,
+          sortAdded: 0,
+          searchMeta: [title, artist].filter(Boolean).join(" "),
+        };
+      }
+      if (child.type === "playlist") {
+        const pl = state.playlists?.[String(child.id)];
+        const dlPl = downloadedPlaylistsById.get(Number(child.id));
+        const title = pl ? String(pl.title || "Playlist") : dlPl ? String(dlPl.title || "Playlist") : `Playlist #${child.id}`;
+        const creator = pl ? String(pl.creator || "") : "";
+        const cover = pl ? String(pl.cover || "") : dlPl ? String(dlPl.cover || "") : "";
+        return {
+          category: "playlist",
+          title,
+          subtitle: creator ? `Playlist • ${creator}` : "Playlist",
+          imageUrl: cover,
+          entityType: "playlist",
+          entityId: Number(child.id),
+          sortRecent: 0,
+          sortAdded: 0,
+          searchMeta: [title, creator].filter(Boolean).join(" "),
+        };
+      }
+      return null;
+    };
+
     rest.sort((a, b) => (Number(b.sortRecent) || 0) - (Number(a.sortRecent) || 0));
-    for (const it of rest) addItem({ ...it, isActive: false });
+    for (const it of rest) {
+      const el = addItem({ ...it, isActive: false });
+
+      // Render folder children inline if expanded
+      if (it.route === "folder" && it.folderId) {
+        const folder = foldersState[it.folderId];
+        const children = Array.isArray(folder?.children) ? folder.children : [];
+        const expanded = getFolderExpandState(it.folderId);
+
+        el.dataset.folderExpanded = expanded ? "1" : "0";
+        const chevronIcon = el.querySelector(".library-item__chevron i");
+        if (chevronIcon) {
+          chevronIcon.className = expanded ? "ri-arrow-up-s-line" : "ri-arrow-down-s-line";
+        }
+
+        const searchActive = Boolean(targetList.dataset.searchActive);
+        if ((expanded || searchActive) && children.length > 0) {
+          for (const child of children) {
+            const childData = resolveFolderChild(child);
+            if (!childData) continue;
+            const childEl = addItem({ ...childData, isActive: false });
+            childEl.classList.add("is-folder-child");
+            childEl.dataset.parentFolderId = it.folderId;
+            childEl.dataset.childType = String(child.type);
+            childEl.dataset.childId = String(child.id);
+          }
+        }
+      }
+    }
   };
 
   return { renderLibraryLocal };

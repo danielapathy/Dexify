@@ -1,4 +1,5 @@
 :root {
+  /* ── Legacy variables (maintained for compatibility) ── */
   --bg: #0b0b0b;
   --ink: rgba(255, 255, 255, 0.92);
   --muted: rgba(255, 255, 255, 0.62);
@@ -18,6 +19,84 @@
   --chip-active-ink: rgba(0, 0, 0, 0.86);
   --font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
     "Apple Color Emoji", "Segoe UI Emoji";
+
+  /* ── Text & Ink Colors ── */
+  --text-primary: rgba(255, 255, 255, 0.92);
+  --text-secondary: rgba(255, 255, 255, 0.78);
+  --text-tertiary: rgba(255, 255, 255, 0.62);
+  --text-muted: rgba(255, 255, 255, 0.55);
+  --text-dim: rgba(255, 255, 255, 0.42);
+  --text-faint: rgba(255, 255, 255, 0.28);
+  --text-subtle: rgba(255, 255, 255, 0.45);
+  --text-ghost: rgba(255, 255, 255, 0.30);
+
+  /* ── Background Colors ── */
+  --bg-black: #000;
+  --bg-elevated: rgba(18, 18, 18, 0.88);
+  --bg-elevated-2: rgba(22, 22, 22, 0.88);
+  --bg-elevated-3: rgba(33, 33, 33, 0.96);
+  --bg-elevated-4: rgba(20, 20, 20, 0.96);
+  --bg-overlay: rgba(0, 0, 0, 0.82);
+  --bg-overlay-light: rgba(0, 0, 0, 0.62);
+  --bg-overlay-dark: rgba(0, 0, 0, 0.92);
+  --bg-darker: rgba(9, 9, 9, 0.92);
+  --bg-surface: rgba(0, 0, 0, 0.72);
+  --bg-card: rgba(0, 0, 0, 0.18);
+
+  /* ── Interactive State Overlays ── */
+  --hover-overlay: rgba(255, 255, 255, 0.06);
+  --hover-overlay-2: rgba(255, 255, 255, 0.08);
+  --hover-overlay-3: rgba(255, 255, 255, 0.10);
+  --hover-overlay-4: rgba(255, 255, 255, 0.12);
+  --hover-overlay-5: rgba(255, 255, 255, 0.16);
+  --active-overlay: rgba(255, 255, 255, 0.16);
+  --pressed-overlay: rgba(255, 255, 255, 0.09);
+  --selected-overlay: rgba(255, 255, 255, 0.07);
+
+  /* ── Borders & Strokes ── */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-2: rgba(255, 255, 255, 0.06);
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --border-stronger: rgba(255, 255, 255, 0.14);
+  --border-bold: rgba(255, 255, 255, 0.18);
+  --border-emphasis: rgba(255, 255, 255, 0.22);
+  --border-bright: rgba(255, 255, 255, 0.85);
+  --divider: rgba(255, 255, 255, 0.10);
+
+  /* ── Accent Colors ── */
+  --accent-hover: #1ed760;
+  --accent-dim: rgba(29, 185, 84, 0.92);
+  --accent-bg: rgba(29, 185, 84, 0.16);
+  --accent-bg-2: rgba(29, 185, 84, 0.12);
+  --accent-bg-3: rgba(29, 185, 84, 0.22);
+  --accent-bg-4: rgba(29, 185, 84, 0.32);
+
+  /* ── Status & Semantic Colors ── */
+  --danger: #e31b23;
+  --danger-dim: rgba(232, 68, 68, 0.22);
+  --danger-text: rgba(255, 120, 120, 0.92);
+  --danger-hover: rgba(232, 100, 100, 0.98);
+  --success: #1db954;
+  --warning: #ff9800;
+
+  /* ── Shadow System ── */
+  --shadow-sm: 0 10px 26px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 12px 50px rgba(0, 0, 0, 0.62);
+  --shadow-lg: 0 24px 90px rgba(0, 0, 0, 0.85);
+  --shadow-xl: 0 32px 120px rgba(0, 0, 0, 0.75);
+  --shadow-inset: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  --shadow-inset-2: inset 0 0 0 1px rgba(0, 0, 0, 0.24);
+  --shadow-focus: 0 0 0 2px rgba(255, 255, 255, 0.74);
+
+  /* ── Special Purpose Colors ── */
+  --skeleton-base: rgba(255, 255, 255, 0.075);
+  --skeleton-shimmer: rgba(255, 255, 255, 0.10);
+  --glass-bg: rgba(255, 255, 255, 0.07);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --scrim: rgba(0, 0, 0, 0.35);
+  --scrim-light: rgba(0, 0, 0, 0.24);
+  --scrim-dark: rgba(0, 0, 0, 0.55);
 }
 
 *,
@@ -92,5 +171,3 @@ body {
   pointer-events: none;
   mix-blend-mode: overlay;
 }
-
-.topbar,

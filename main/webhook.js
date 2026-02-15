@@ -263,6 +263,255 @@ function startSessionWebhook({ getSession, getMainWindow, uiDebugEnabled, getDow
           return;
         }
 
+        // -----------------------------------------------------------------
+        // Element discovery & interaction endpoints
+        // -----------------------------------------------------------------
+
+        if (url.pathname === "/ui/elements") {
+          const tag = url.searchParams.get("tag") || undefined;
+          const type = url.searchParams.get("type") || undefined;
+          const id = url.searchParams.get("id") || undefined;
+          const descContains = url.searchParams.get("desc") || undefined;
+          const visibleOnly = url.searchParams.get("visibleOnly") === "1" || url.searchParams.get("visibleOnly") === "true" || undefined;
+          const limit = parsePositiveInt(url.searchParams.get("limit"), { min: 1, max: 500 }) || undefined;
+          void uiBridge
+            .invokeRenderer("queryElements", { tag, type, id, descContains, visibleOnly, limit })
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => writeJson(res, 500, { ok: false, error: "server_error", message: String(e?.message || e) }));
+          return;
+        }
+
+        if (url.pathname === "/ui/element") {
+          const tag = url.searchParams.get("tag") || "";
+          const id = url.searchParams.get("id") || undefined;
+          const index = parsePositiveInt(url.searchParams.get("index"), { min: 0, max: 500 });
+          void uiBridge
+            .invokeRenderer("getElement", { tag, id, ...(index !== null ? { index } : {}) })
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => writeJson(res, 500, { ok: false, error: "server_error", message: String(e?.message || e) }));
+          return;
+        }
+
+        if (url.pathname === "/ui/action/click-element") {
+          if (String(req.method || "").toUpperCase() !== "POST") {
+            writeJson(res, 405, { ok: false, error: "method_not_allowed" });
+            return;
+          }
+          void readBodyJson(req)
+            .then((body) => {
+              const tag = String(body?.tag || "").trim();
+              const id = body?.id ? String(body.id).trim() : undefined;
+              const index = Number.isFinite(Number(body?.index)) ? Number(body.index) : undefined;
+              const rightClick = Boolean(body?.rightClick);
+              return uiBridge.invokeRenderer("clickElement", { tag, id, index, rightClick });
+            })
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => {
+              const msg = String(e?.message || e);
+              writeJson(res, msg === "payload_too_large" ? 413 : 500, { ok: false, error: "server_error", message: msg });
+            });
+          return;
+        }
+
+        if (url.pathname === "/ui/action/type") {
+          if (String(req.method || "").toUpperCase() !== "POST") {
+            writeJson(res, 405, { ok: false, error: "method_not_allowed" });
+            return;
+          }
+          void readBodyJson(req)
+            .then((body) => {
+              const tag = String(body?.tag || "").trim();
+              const id = body?.id ? String(body.id).trim() : undefined;
+              const index = Number.isFinite(Number(body?.index)) ? Number(body.index) : undefined;
+              const text = String(body?.text || "");
+              const clear = Boolean(body?.clear);
+              return uiBridge.invokeRenderer("typeIntoElement", { tag, id, index, text, clear });
+            })
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => {
+              const msg = String(e?.message || e);
+              writeJson(res, msg === "payload_too_large" ? 413 : 500, { ok: false, error: "server_error", message: msg });
+            });
+          return;
+        }
+
+        if (url.pathname === "/ui/action/hover") {
+          if (String(req.method || "").toUpperCase() !== "POST") {
+            writeJson(res, 405, { ok: false, error: "method_not_allowed" });
+            return;
+          }
+          void readBodyJson(req)
+            .then((body) => {
+              const tag = String(body?.tag || "").trim();
+              const id = body?.id ? String(body.id).trim() : undefined;
+              const index = Number.isFinite(Number(body?.index)) ? Number(body.index) : undefined;
+              return uiBridge.invokeRenderer("hoverElement", { tag, id, index });
+            })
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => {
+              const msg = String(e?.message || e);
+              writeJson(res, msg === "payload_too_large" ? 413 : 500, { ok: false, error: "server_error", message: msg });
+            });
+          return;
+        }
+
+        if (url.pathname === "/ui/action/wait-element") {
+          if (String(req.method || "").toUpperCase() !== "POST") {
+            writeJson(res, 405, { ok: false, error: "method_not_allowed" });
+            return;
+          }
+          void readBodyJson(req)
+            .then((body) => {
+              const tag = String(body?.tag || "").trim();
+              const id = body?.id ? String(body.id).trim() : undefined;
+              const timeoutMs = Math.max(100, Math.min(30_000, Number(body?.timeoutMs) || 5_000));
+              return uiBridge.invokeRenderer("waitForElement", { tag, id, timeoutMs });
+            })
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => {
+              const msg = String(e?.message || e);
+              writeJson(res, msg === "payload_too_large" ? 413 : 500, { ok: false, error: "server_error", message: msg });
+            });
+          return;
+        }
+
+        // -----------------------------------------------------------------
+        // Context menu endpoints
+        // -----------------------------------------------------------------
+
+        if (url.pathname === "/ui/snapshot/context-menu") {
+          void uiBridge
+            .invokeRenderer("snapshotContextMenu", {})
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => writeJson(res, 500, { ok: false, error: "server_error", message: String(e?.message || e) }));
+          return;
+        }
+
+        if (url.pathname === "/ui/action/dismiss-menu") {
+          if (String(req.method || "").toUpperCase() !== "POST") {
+            writeJson(res, 405, { ok: false, error: "method_not_allowed" });
+            return;
+          }
+          void uiBridge
+            .invokeRenderer("dismissContextMenu", {})
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => writeJson(res, 500, { ok: false, error: "server_error", message: String(e?.message || e) }));
+          return;
+        }
+
+        // -----------------------------------------------------------------
+        // Visual inspection endpoints
+        // -----------------------------------------------------------------
+
+        if (url.pathname === "/ui/inspect/layout") {
+          const tag = url.searchParams.get("tag") || undefined;
+          const type = url.searchParams.get("type") || undefined;
+          const visibleOnly = url.searchParams.get("visibleOnly") === "1" || url.searchParams.get("visibleOnly") === "true" || undefined;
+          const limit = parsePositiveInt(url.searchParams.get("limit"), { min: 1, max: 300 }) || undefined;
+          void uiBridge
+            .invokeRenderer("inspectLayout", { tag, type, visibleOnly, limit })
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => writeJson(res, 500, { ok: false, error: "server_error", message: String(e?.message || e) }));
+          return;
+        }
+
+        if (url.pathname === "/ui/inspect/screen") {
+          void uiBridge
+            .invokeRenderer("captureScreenState", {})
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => writeJson(res, 500, { ok: false, error: "server_error", message: String(e?.message || e) }));
+          return;
+        }
+
+        // -----------------------------------------------------------------
+        // Custom playlist & folder debug endpoints
+        // -----------------------------------------------------------------
+
+        if (url.pathname === "/ui/snapshot/custom-playlists") {
+          void uiBridge
+            .invokeRenderer("snapshotCustomPlaylists", {})
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => writeJson(res, 500, { ok: false, error: "server_error", message: String(e?.message || e) }));
+          return;
+        }
+
+        if (url.pathname === "/ui/snapshot/folders") {
+          void uiBridge
+            .invokeRenderer("snapshotFolders", {})
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => writeJson(res, 500, { ok: false, error: "server_error", message: String(e?.message || e) }));
+          return;
+        }
+
+        if (url.pathname === "/ui/snapshot/custom-playlist-view") {
+          void uiBridge
+            .invokeRenderer("snapshotCustomPlaylistView", {})
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => writeJson(res, 500, { ok: false, error: "server_error", message: String(e?.message || e) }));
+          return;
+        }
+
+        if (url.pathname === "/ui/action/toggle-folder") {
+          if (String(req.method || "").toUpperCase() !== "POST") {
+            writeJson(res, 405, { ok: false, error: "method_not_allowed" });
+            return;
+          }
+          void readBodyJson(req)
+            .then((body) => {
+              const folderId = String(body?.folderId || "").trim();
+              const expanded = body?.expanded;
+              return uiBridge.invokeRenderer("toggleFolderExpand", {
+                folderId,
+                ...(typeof expanded === "boolean" ? { expanded } : {}),
+              });
+            })
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => {
+              const msg = String(e?.message || e);
+              writeJson(res, msg === "payload_too_large" ? 413 : 500, { ok: false, error: "server_error", message: msg });
+            });
+          return;
+        }
+
+        if (url.pathname === "/ui/snapshot/library-order") {
+          void uiBridge
+            .invokeRenderer("snapshotLibraryOrder", {})
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => writeJson(res, 500, { ok: false, error: "server_error", message: String(e?.message || e) }));
+          return;
+        }
+
+        if (url.pathname === "/ui/test/seed") {
+          if (String(req.method || "").toUpperCase() !== "POST") {
+            writeJson(res, 405, { ok: false, error: "method_not_allowed" });
+            return;
+          }
+          void readBodyJson(req)
+            .then((body) => {
+              const playlists = Number(body?.playlists) || 0;
+              const folders = Number(body?.folders) || 0;
+              return uiBridge.invokeRenderer("seedTestData", { playlists, folders });
+            })
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => {
+              const msg = String(e?.message || e);
+              writeJson(res, msg === "payload_too_large" ? 413 : 500, { ok: false, error: "server_error", message: msg });
+            });
+          return;
+        }
+
+        if (url.pathname === "/ui/test/clear") {
+          if (String(req.method || "").toUpperCase() !== "POST") {
+            writeJson(res, 405, { ok: false, error: "method_not_allowed" });
+            return;
+          }
+          void uiBridge
+            .invokeRenderer("clearTestData", {})
+            .then((out) => writeJson(res, out?.ok === false ? 400 : 200, out))
+            .catch((e) => writeJson(res, 500, { ok: false, error: "server_error", message: String(e?.message || e) }));
+          return;
+        }
+
         if (url.pathname === "/ui/diagnose") {
           const expr = url.searchParams.get("expr") || "";
           if (!expr) {

@@ -16,7 +16,13 @@
     "build:win": "npm run build:vendor && electron-builder --win",
     "build:linux": "npm run build:vendor && electron-builder --linux",
     "build:all": "npm run build:vendor && electron-builder --mac --win --linux",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "cap:init": "npx cap init Dexify com.dexify.app --web-dir .",
+    "cap:add:android": "npx cap add android",
+    "cap:sync": "npx cap sync",
+    "cap:open:android": "npx cap open android",
+    "cap:run:android": "npx cap run android",
+    "mobile:preview": "DEXIFY_UI_DEBUG=1 env -u ELECTRON_RUN_AS_NODE electron . --ui-debug"
   },
   "dependencies": {
     "async": "^3.2.6",

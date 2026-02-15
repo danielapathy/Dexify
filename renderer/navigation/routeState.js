@@ -14,6 +14,8 @@ export function getRouteKey(route) {
   if (name === "entity") return `entity:${String(route?.entityType || "")}:${String(route?.id || "")}`;
   if (name === "search") return `search:${String(route?.q || "")}:${String(route?.filter || "")}`;
   if (name === "page") return `page:${String(route?.page || "")}`;
+  if (name === "customPlaylist") return `customPlaylist:${String(route?.id || "")}`;
+  if (name === "folder") return `folder:${String(route?.id || "")}`;
   if (name === "settings") return "settings";
   if (name === "notifications") return "notifications";
   if (name === "liked") return "liked";

@@ -32,6 +32,86 @@ export function renderMenu(root, items) {
       continue;
     }
 
+    // Submenu items open a side-by-side flyout panel
+    if (item.submenu && typeof item.buildSubmenu === "function") {
+      const wrapper = document.createElement("div");
+      wrapper.className = "context-menu__submenu-wrap";
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "context-menu__item context-menu__item--submenu";
+      btn.innerHTML = `
+        <span class="context-menu__icon">${item.icon ? `<i class="${item.icon}" aria-hidden="true"></i>` : ""}</span>
+        <span class="context-menu__label">${String(item.label || "")}</span>
+        <span class="context-menu__right"><i class="ri-arrow-right-s-line" aria-hidden="true"></i></span>
+      `;
+      const dbgTag = String(item.dbgTag || item.label || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      btn.dataset.dbg = `ctx-${dbgTag}`;
+      btn.dataset.dbgType = "context-menu-item";
+      btn.dataset.dbgDesc = String(item.label || "");
+
+      const subPanel = document.createElement("div");
+      subPanel.className = "context-menu__subpanel";
+      subPanel.hidden = true;
+
+      let subBuilt = false;
+      const showSub = () => {
+        if (!subBuilt) {
+          subBuilt = true;
+          try { item.buildSubmenu(subPanel, root); } catch {}
+        }
+        subPanel.hidden = false;
+        btn.classList.add("is-expanded");
+        // Position: try right side, fall back to left
+        requestAnimationFrame(() => {
+          const panelRect = panel.getBoundingClientRect();
+          const subRect = subPanel.getBoundingClientRect();
+          const vw = window.innerWidth || 800;
+          if (panelRect.right + subRect.width + 4 > vw) {
+            subPanel.classList.add("is-left");
+            subPanel.classList.remove("is-right");
+          } else {
+            subPanel.classList.add("is-right");
+            subPanel.classList.remove("is-left");
+          }
+        });
+      };
+      const hideSub = () => {
+        subPanel.hidden = true;
+        btn.classList.remove("is-expanded");
+      };
+
+      let hoverTimer = 0;
+      let leaveTimer = 0;
+      const clearTimers = () => { clearTimeout(hoverTimer); clearTimeout(leaveTimer); hoverTimer = 0; leaveTimer = 0; };
+
+      wrapper.addEventListener("mouseenter", () => {
+        clearTimers();
+        hoverTimer = setTimeout(showSub, 80);
+      });
+      wrapper.addEventListener("mouseleave", () => {
+        clearTimers();
+        leaveTimer = setTimeout(hideSub, 200);
+      });
+      subPanel.addEventListener("mouseenter", () => { clearTimers(); });
+      subPanel.addEventListener("mouseleave", () => {
+        clearTimers();
+        leaveTimer = setTimeout(hideSub, 200);
+      });
+      btn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        clearTimers();
+        if (subPanel.hidden) showSub();
+        else hideSub();
+      });
+
+      wrapper.appendChild(btn);
+      wrapper.appendChild(subPanel);
+      panel.appendChild(wrapper);
+      continue;
+    }
+
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `context-menu__item${item.danger ? " is-danger" : ""}`;
@@ -41,6 +121,12 @@ export function renderMenu(root, items) {
       <span class="context-menu__label">${String(item.label || "")}</span>
       <span class="context-menu__right">${item.rightIcon ? `<i class="${item.rightIcon}" aria-hidden="true"></i>` : ""}</span>
     `;
+
+    const dbgTag = String(item.dbgTag || item.label || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+    btn.dataset.dbg = `ctx-${dbgTag}`;
+    btn.dataset.dbgType = "context-menu-item";
+    btn.dataset.dbgDesc = String(item.label || "");
+    if (item.dbgId) btn.dataset.dbgId = String(item.dbgId);
 
     btn.addEventListener("click", async (event) => {
       event.preventDefault();

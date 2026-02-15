@@ -23,6 +23,23 @@ function createUiBridge({ getMainWindow, uiDebugEnabled }) {
       "clickEntityAction",
       "downloadBottomPlaylistByTitle",
       "snapshotDownloadsLocal",
+      "queryElements",
+      "getElement",
+      "clickElement",
+      "typeIntoElement",
+      "hoverElement",
+      "waitForElement",
+      "snapshotContextMenu",
+      "dismissContextMenu",
+      "inspectLayout",
+      "captureScreenState",
+      "snapshotCustomPlaylists",
+      "snapshotFolders",
+      "snapshotCustomPlaylistView",
+      "seedTestData",
+      "clearTestData",
+      "toggleFolderExpand",
+      "snapshotLibraryOrder",
     ]);
     const name = String(method || "");
     if (!allowed.has(name)) return { ok: false, error: "method_not_allowed" };

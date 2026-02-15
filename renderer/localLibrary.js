@@ -2,6 +2,8 @@ import { normalizeRecordType, readJsonFromLocalStorage, writeJsonToLocalStorage 
 import { createRecentTracksApi } from "./localLibrary/recentTracksApi.js";
 import { createSavedCollectionsApi } from "./localLibrary/savedCollectionsApi.js";
 import { createSavedTracksApi } from "./localLibrary/savedTracksApi.js";
+import { createCustomPlaylistsApi } from "./localLibrary/customPlaylistsApi.js";
+import { createFoldersApi } from "./localLibrary/foldersApi.js";
 import { compactTrackJson, coverFromTrack, md5ToCoverUrl } from "./localLibrary/trackModels.js";
 
 const KEY = "spotify.localLibrary.v1";
@@ -13,6 +15,8 @@ const defaultState = () => ({
   savedAlbums: {},
   playlists: {},
   recentTracks: [],
+  customPlaylists: {},
+  folders: {},
 });
 
 export function createLocalLibrary() {
@@ -27,6 +31,8 @@ export function createLocalLibrary() {
       savedAlbums: parsed.savedAlbums && typeof parsed.savedAlbums === "object" ? parsed.savedAlbums : {},
       playlists: parsed.playlists && typeof parsed.playlists === "object" ? parsed.playlists : {},
       recentTracks: Array.isArray(parsed.recentTracks) ? parsed.recentTracks : [],
+      customPlaylists: parsed.customPlaylists && typeof parsed.customPlaylists === "object" ? parsed.customPlaylists : {},
+      folders: parsed.folders && typeof parsed.folders === "object" ? parsed.folders : {},
     };
   };
 
@@ -75,12 +81,17 @@ export function createLocalLibrary() {
     coverFromTrack,
   });
 
+  const customPlaylistsApi = createCustomPlaylistsApi({ load, save, notify });
+  const foldersApi = createFoldersApi({ load, save, notify });
+
   return {
     load,
     mutate,
     ...savedTracksApi,
     ...savedCollectionsApi,
     ...recentTracksApi,
+    ...customPlaylistsApi,
+    ...foldersApi,
   };
 }
 

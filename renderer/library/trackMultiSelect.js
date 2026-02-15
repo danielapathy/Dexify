@@ -262,6 +262,9 @@ export function wireTrackMultiSelect() {
       } else if (state.context === "playlist" || state.context === "album") {
         primaryBtn.textContent = count === 1 ? "Delete track from library" : `Delete ${count} tracks from library`;
         primaryBtn.dataset.kind = state.context;
+      } else if (state.context === "customPlaylist") {
+        primaryBtn.textContent = count === 1 ? "Remove from playlist" : `Remove ${count} from playlist`;
+        primaryBtn.dataset.kind = "customPlaylist";
       } else {
         primaryBtn.textContent = count === 1 ? "Remove from Liked" : "Remove from Liked";
         primaryBtn.dataset.kind = "liked";
@@ -541,6 +544,25 @@ export function wireTrackMultiSelect() {
               { replace: true },
             );
           }
+        } catch {}
+      }
+      exit();
+      return;
+    }
+
+    if (state.context === "customPlaylist") {
+      const route = window.__navRoute && typeof window.__navRoute === "object" ? window.__navRoute : null;
+      const cpId = String(route?.id || "");
+      if (cpId) {
+        for (const id of ids) {
+          try {
+            lib.removeTrackFromCustomPlaylist?.(cpId, id);
+          } catch {}
+        }
+        try {
+          const scrollEl = getMainScrollEl();
+          const st = scrollEl ? Number(scrollEl.scrollTop) : 0;
+          window.__spotifyNav?.navigate?.({ name: "customPlaylist", id: cpId, refresh: true, scrollTop: st }, { replace: true });
         } catch {}
       }
       exit();

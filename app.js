@@ -1,4 +1,5 @@
 import { wireChips, wirePlatformClasses, wireRanges } from "./renderer/platform.js";
+import { wireMobile } from "./renderer/mobile.js";
 import { wireAccountMenu } from "./renderer/accountMenu.js";
 import { wireCarousels } from "./renderer/carousels.js";
 import { wireGlobalMenuDismissal } from "./renderer/menus/globalMenuDismiss.js";
@@ -19,6 +20,7 @@ import {
   wireQuickCards,
   wireSidebarCollapse,
   wireSidebarResize,
+  wireCreateMenu,
 } from "./renderer/sidebar.js";
 
 let appInitialized = false;
@@ -99,6 +101,7 @@ function initAppOnce() {
   appInitialized = true;
 
   wirePlatformClasses();
+  wireMobile();
   wireRanges();
   wireChips();
   wireModal();
@@ -111,6 +114,7 @@ function initAppOnce() {
   wireLibrarySelection();
   wireLibraryFilters();
   wireLibraryData();
+  wireCreateMenu();
   wireSidebarResize();
   wireSidebarCollapse();
 

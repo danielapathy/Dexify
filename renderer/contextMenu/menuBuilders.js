@@ -1,7 +1,7 @@
 import { parseTarget } from "../deezerImages.js";
 import { getDownloadQualityRaw } from "../settings.js";
 
-import { buildItem } from "./menuDom.js";
+import { buildItem, hideMenu } from "./menuDom.js";
 import { refreshDownloadsIfVisible, refreshLikedIfVisible, resolvePageContext } from "./pageContext.js";
 
 import { getAlbumIdFromTrack, getArtistIdFromTrack, normalizeTrackFromAny } from "./trackResolver.js";
@@ -212,6 +212,322 @@ export function createContextMenuBuilders({ lib }) {
       }),
     );
 
+    // "Add to playlist" submenu
+    items.push({
+      label: "Add to playlist",
+      icon: "ri-play-list-add-line",
+      submenu: true,
+      buildSubmenu: (subPanel, menuRoot) => {
+        const customPlaylists = lib.listCustomPlaylists?.() || [];
+        const folders = lib.listFolders?.() || [];
+
+        // Build folder → custom playlist mapping (only folders containing custom playlists)
+        const folderChildPlaylists = new Map();
+        const playlistIdsInFolders = new Set();
+        for (const f of folders) {
+          const children = Array.isArray(f.children) ? f.children : [];
+          const cpChildren = [];
+          for (const c of children) {
+            if (c.type === "customPlaylist" && c.id) {
+              const cp = customPlaylists.find((p) => String(p.id) === String(c.id));
+              if (cp) { cpChildren.push(cp); playlistIdsInFolders.add(String(cp.id)); }
+            }
+          }
+          if (cpChildren.length > 0) folderChildPlaylists.set(f, cpChildren);
+        }
+        // Top-level playlists = those not inside any folder
+        const topLevelPlaylists = customPlaylists.filter((p) => !playlistIdsInFolders.has(String(p.id)));
+
+        // Search input
+        const searchWrap = document.createElement("div");
+        searchWrap.className = "context-menu__sub-search";
+        searchWrap.innerHTML = '<i class="ri-search-line context-menu__sub-search-icon" aria-hidden="true"></i>';
+        const searchInput = document.createElement("input");
+        searchInput.type = "text";
+        searchInput.placeholder = "Find a playlist";
+        searchInput.className = "context-menu__sub-search-input";
+        searchInput.dataset.dbg = "submenu-playlist-search";
+        searchInput.dataset.dbgType = "input";
+        searchWrap.appendChild(searchInput);
+        subPanel.appendChild(searchWrap);
+
+        // New playlist option
+        const newBtn = document.createElement("button");
+        newBtn.type = "button";
+        newBtn.className = "context-menu__item";
+        newBtn.dataset.dbg = "ctx-new-playlist";
+        newBtn.dataset.dbgType = "context-menu-item";
+        newBtn.dataset.dbgDesc = "Create new playlist and add track";
+        newBtn.innerHTML = `
+          <span class="context-menu__icon"><i class="ri-add-line" aria-hidden="true"></i></span>
+          <span class="context-menu__label">New playlist</span>
+        `;
+        newBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const p = lib.createCustomPlaylist?.();
+          if (p) lib.addTrackToCustomPlaylist?.(p.id, t);
+          hideMenu(menuRoot);
+        });
+        subPanel.appendChild(newBtn);
+
+        // New Folder option with nested submenu
+        const newFolderWrap = document.createElement("div");
+        newFolderWrap.className = "context-menu__folder-submenu-wrap";
+        const newFolderBtn = document.createElement("button");
+        newFolderBtn.type = "button";
+        newFolderBtn.className = "context-menu__item context-menu__item--submenu";
+        newFolderBtn.dataset.dbg = "ctx-new-folder";
+        newFolderBtn.dataset.dbgType = "context-menu-item";
+        newFolderBtn.innerHTML = `
+          <span class="context-menu__icon"><i class="ri-folder-add-line" aria-hidden="true"></i></span>
+          <span class="context-menu__label">New Folder</span>
+          <span class="context-menu__right"><i class="ri-arrow-right-s-line" aria-hidden="true"></i></span>
+        `;
+        const newFolderSub = document.createElement("div");
+        newFolderSub.className = "context-menu__folder-subpanel";
+        newFolderSub.hidden = true;
+        let newFolderBuilt = false;
+        const buildNewFolderSub = () => {
+          if (newFolderBuilt) return;
+          newFolderBuilt = true;
+          // Create folder and add a new playlist inside it
+          const createAndAddBtn = document.createElement("button");
+          createAndAddBtn.type = "button";
+          createAndAddBtn.className = "context-menu__item";
+          createAndAddBtn.innerHTML = `
+            <span class="context-menu__icon"><i class="ri-folder-add-line" aria-hidden="true"></i></span>
+            <span class="context-menu__label">Create folder</span>
+          `;
+          createAndAddBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const f = lib.createFolder?.();
+            if (f) {
+              const p = lib.createCustomPlaylist?.();
+              if (p) {
+                lib.addTrackToCustomPlaylist?.(p.id, t);
+                lib.addChildToFolder?.(f.id, { type: "customPlaylist", id: p.id });
+              }
+            }
+            hideMenu(menuRoot);
+          });
+          newFolderSub.appendChild(createAndAddBtn);
+          // Add to existing folders
+          for (const f of folders) {
+            const row = document.createElement("button");
+            row.type = "button";
+            row.className = "context-menu__item";
+            row.innerHTML = `
+              <span class="context-menu__icon"><i class="ri-folder-3-fill" aria-hidden="true"></i></span>
+              <span class="context-menu__label">${String(f.title || "Untitled")}</span>
+            `;
+            row.addEventListener("click", (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const p = lib.createCustomPlaylist?.();
+              if (p) {
+                lib.addTrackToCustomPlaylist?.(p.id, t);
+                lib.addChildToFolder?.(f.id, { type: "customPlaylist", id: p.id });
+              }
+              hideMenu(menuRoot);
+            });
+            newFolderSub.appendChild(row);
+          }
+        };
+        let nfHoverTimer = 0, nfLeaveTimer = 0;
+        const nfClearTimers = () => { clearTimeout(nfHoverTimer); clearTimeout(nfLeaveTimer); };
+        newFolderWrap.addEventListener("mouseenter", () => {
+          nfClearTimers();
+          nfHoverTimer = setTimeout(() => { buildNewFolderSub(); newFolderSub.hidden = false; }, 80);
+        });
+        newFolderWrap.addEventListener("mouseleave", () => {
+          nfClearTimers();
+          nfLeaveTimer = setTimeout(() => { newFolderSub.hidden = true; }, 200);
+        });
+        newFolderSub.addEventListener("mouseenter", () => { nfClearTimers(); });
+        newFolderSub.addEventListener("mouseleave", () => {
+          nfClearTimers();
+          nfLeaveTimer = setTimeout(() => { newFolderSub.hidden = true; }, 200);
+        });
+        newFolderWrap.appendChild(newFolderBtn);
+        newFolderWrap.appendChild(newFolderSub);
+        subPanel.appendChild(newFolderWrap);
+
+        // Separator
+        const sep = document.createElement("div");
+        sep.className = "context-menu__sub-sep";
+        subPanel.appendChild(sep);
+
+        // Playlist & folder list (max 5 items visible, fixed height)
+        const listContainer = document.createElement("div");
+        listContainer.className = "context-menu__sub-list";
+
+        const buildPlaylistRow = (p) => {
+          const row = document.createElement("button");
+          row.type = "button";
+          row.className = "context-menu__item";
+          row.dataset.dbg = "ctx-add-to-playlist";
+          row.dataset.dbgType = "context-menu-item";
+          row.dataset.dbgId = String(p.id);
+          row.dataset.dbgDesc = String(p.title || "");
+          row.innerHTML = `
+            <span class="context-menu__icon"><i class="ri-music-2-fill" aria-hidden="true"></i></span>
+            <span class="context-menu__label">${String(p.title || "Untitled")}</span>
+          `;
+          row.addEventListener("click", (e2) => {
+            e2.preventDefault();
+            e2.stopPropagation();
+            lib.addTrackToCustomPlaylist?.(p.id, t);
+            hideMenu(menuRoot);
+          });
+          return row;
+        };
+
+        const buildFolderRow = (folder, childPlaylists) => {
+          const wrap = document.createElement("div");
+          wrap.className = "context-menu__folder-submenu-wrap";
+          const row = document.createElement("button");
+          row.type = "button";
+          row.className = "context-menu__item context-menu__item--submenu";
+          row.dataset.dbg = "ctx-folder-playlist";
+          row.dataset.dbgId = String(folder.id);
+          row.innerHTML = `
+            <span class="context-menu__icon"><i class="ri-folder-3-fill" aria-hidden="true"></i></span>
+            <span class="context-menu__label">${String(folder.title || "Untitled")}</span>
+            <span class="context-menu__right"><i class="ri-arrow-right-s-line" aria-hidden="true"></i></span>
+          `;
+          const folderSub = document.createElement("div");
+          folderSub.className = "context-menu__folder-subpanel";
+          folderSub.hidden = true;
+          let folderBuilt = false;
+          const buildFolderContent = () => {
+            if (folderBuilt) return;
+            folderBuilt = true;
+            // Search inside folder only if >5 items
+            let folderSearchInput = null;
+            if (childPlaylists.length > 5) {
+              const fSearchWrap = document.createElement("div");
+              fSearchWrap.className = "context-menu__sub-search";
+              fSearchWrap.innerHTML = '<i class="ri-search-line context-menu__sub-search-icon" aria-hidden="true"></i>';
+              folderSearchInput = document.createElement("input");
+              folderSearchInput.type = "text";
+              folderSearchInput.placeholder = "Find a playlist";
+              folderSearchInput.className = "context-menu__sub-search-input";
+              fSearchWrap.appendChild(folderSearchInput);
+              folderSub.appendChild(fSearchWrap);
+            }
+            const folderList = document.createElement("div");
+            folderList.style.maxHeight = "220px";
+            folderList.style.overflowY = "auto";
+            const renderFolderList = (filter) => {
+              folderList.innerHTML = "";
+              const needle = String(filter || "").trim().toLowerCase();
+              const filtered = needle
+                ? childPlaylists.filter((p) => String(p.title || "").toLowerCase().includes(needle))
+                : childPlaylists;
+              const visible = filtered.slice(0, 5);
+              for (const cp of visible) {
+                folderList.appendChild(buildPlaylistRow(cp));
+              }
+              if (visible.length === 0 && needle) {
+                const empty = document.createElement("div");
+                empty.className = "context-menu__sub-empty";
+                empty.textContent = "No playlists found";
+                folderList.appendChild(empty);
+              }
+            };
+            renderFolderList("");
+            folderSub.appendChild(folderList);
+            if (folderSearchInput) {
+              folderSearchInput.addEventListener("input", () => renderFolderList(folderSearchInput.value));
+            }
+          };
+          let fHoverTimer = 0, fLeaveTimer = 0;
+          const fClearTimers = () => { clearTimeout(fHoverTimer); clearTimeout(fLeaveTimer); };
+          wrap.addEventListener("mouseenter", () => {
+            fClearTimers();
+            fHoverTimer = setTimeout(() => { buildFolderContent(); folderSub.hidden = false; }, 80);
+          });
+          wrap.addEventListener("mouseleave", () => {
+            fClearTimers();
+            fLeaveTimer = setTimeout(() => { folderSub.hidden = true; }, 200);
+          });
+          folderSub.addEventListener("mouseenter", () => { fClearTimers(); });
+          folderSub.addEventListener("mouseleave", () => {
+            fClearTimers();
+            fLeaveTimer = setTimeout(() => { folderSub.hidden = true; }, 200);
+          });
+          wrap.appendChild(row);
+          wrap.appendChild(folderSub);
+          return wrap;
+        };
+
+        const renderList = (filter) => {
+          listContainer.innerHTML = "";
+          const needle = String(filter || "").trim().toLowerCase();
+
+          // Build combined list: top-level playlists + folders with custom playlists
+          const entries = [];
+          for (const p of topLevelPlaylists) {
+            entries.push({ kind: "playlist", playlist: p, title: String(p.title || "") });
+          }
+          for (const [f, cps] of folderChildPlaylists) {
+            entries.push({ kind: "folder", folder: f, children: cps, title: String(f.title || "") });
+          }
+
+          const filtered = needle
+            ? entries.filter((e) => {
+                if (e.kind === "playlist") return e.title.toLowerCase().includes(needle);
+                // For folders, match folder title or any child playlist title
+                if (e.title.toLowerCase().includes(needle)) return true;
+                return e.children.some((cp) => String(cp.title || "").toLowerCase().includes(needle));
+              })
+            : entries;
+
+          const visible = filtered.slice(0, 5);
+          for (const entry of visible) {
+            if (entry.kind === "playlist") {
+              listContainer.appendChild(buildPlaylistRow(entry.playlist));
+            } else {
+              listContainer.appendChild(buildFolderRow(entry.folder, entry.children));
+            }
+          }
+          if (visible.length === 0 && needle) {
+            const empty = document.createElement("div");
+            empty.className = "context-menu__sub-empty";
+            empty.textContent = "No playlists found";
+            listContainer.appendChild(empty);
+          }
+        };
+        renderList("");
+        subPanel.appendChild(listContainer);
+
+        searchInput.addEventListener("input", () => renderList(searchInput.value));
+        requestAnimationFrame(() => searchInput.focus());
+      },
+    });
+
+    // "Remove from this playlist" when viewing a custom playlist
+    const pageContext = resolvePageContext();
+    if (pageContext?.type === "customPlaylist" && pageContext?.id) {
+      const cpId = pageContext.id;
+      items.push(
+        buildItem({
+          label: "Remove from this playlist",
+          icon: "ri-indeterminate-circle-line",
+          danger: true,
+          onClick: () => {
+            lib.removeTrackFromCustomPlaylist?.(cpId, trackId);
+            // Live-refresh the page
+            try {
+              window.__spotifyNav?.navigate?.({ name: "customPlaylist", id: cpId, refresh: true }, { replace: true });
+            } catch {}
+          },
+        }),
+      );
+    }
+
     items.push({ kind: "sep" });
 
     if (albumId) {
@@ -258,14 +574,14 @@ export function createContextMenuBuilders({ lib }) {
       }),
     );
 
-    if (context === "downloads") {
+    const isInsideCustomPlaylist = pageContext?.type === "customPlaylist" && pageContext?.id;
+    if (isDownloadedAny && !isInsideCustomPlaylist) {
       items.push({ kind: "sep" });
       items.push(
         buildItem({
           label: "Delete download",
           icon: "ri-delete-bin-6-line",
           danger: true,
-          disabled: !isDownloadedAny,
           onClick: async () => {
             if (!window.dl?.deleteFromDisk) return;
             const pre = (() => {
@@ -292,7 +608,7 @@ export function createContextMenuBuilders({ lib }) {
                   const routeId = Number(route?.id);
                   if (routeType === "playlist" && Number.isFinite(routeId) && routeId > 0) out.add(routeId);
                 }
-              } catch {}
+              } catch {};
               return Array.from(out);
             })();
 
@@ -323,7 +639,7 @@ export function createContextMenuBuilders({ lib }) {
             try {
               window.__downloadsUI?.removeTrack?.(trackId);
             } catch {}
-            if (!ok?.ok) refreshDownloadsIfVisible();
+            refreshDownloadsIfVisible();
           },
         }),
       );
@@ -344,8 +660,9 @@ export function createContextMenuBuilders({ lib }) {
       );
     }
 
-    if (context === "liked" || context === "downloads" || context === "playlist" || context === "album") {
-      const canSelectMultiple = context === "playlist" || context === "album" ? isDownloadedAny : true;
+    const contextName = typeof context === "object" ? context?.type : context;
+    if (contextName === "liked" || contextName === "downloads" || contextName === "playlist" || contextName === "album" || contextName === "customPlaylist") {
+      const canSelectMultiple = contextName === "playlist" || contextName === "album" ? isDownloadedAny : true;
       items.push({ kind: "sep" });
       items.push(
         buildItem({
@@ -628,5 +945,220 @@ export function createContextMenuBuilders({ lib }) {
     return [];
   };
 
-  return { buildTrackMenu, buildCardMenu };
+  const countDownloadedForCustomPlaylist = (playlistId) => {
+    try {
+      const playlist = lib.getCustomPlaylist?.(playlistId);
+      if (!playlist) return 0;
+      const trackIds = Array.isArray(playlist.trackIds) ? playlist.trackIds : [];
+      const st = lib.load?.() || {};
+      const downloaded = st.downloadedTracks && typeof st.downloadedTracks === "object" ? st.downloadedTracks : {};
+      let count = 0;
+      for (const tid of trackIds) {
+        const entry = downloaded[String(tid)];
+        if (entry && typeof entry === "object" && entry.download?.fileUrl) count++;
+      }
+      return count;
+    } catch {
+      return 0;
+    }
+  };
+
+  const buildCustomPlaylistSidebarMenu = ({ customPlaylistId }) => {
+    const id = String(customPlaylistId || "");
+    if (!id) return [];
+    const playlist = lib.getCustomPlaylist?.(id);
+    if (!playlist) return [];
+
+    const items = [];
+
+    items.push(
+      buildItem({
+        label: "Play",
+        icon: "ri-play-fill",
+        onClick: () => {
+          if (!window.__player) return;
+          const trackIds = Array.isArray(playlist.trackIds) ? playlist.trackIds : [];
+          const tracksMap = playlist.tracks && typeof playlist.tracks === "object" ? playlist.tracks : {};
+          const tracks = [];
+          for (const tid of trackIds) {
+            const t = tracksMap[String(tid)];
+            if (!t) continue;
+            tracks.push({
+              id: tid,
+              title: String(t.title || ""),
+              artist: { name: String(t.artist || ""), id: null },
+              album: { id: t.albumId || null, title: String(t.albumTitle || ""), cover_medium: String(t.albumCover || ""), cover: String(t.albumCover || "") },
+              duration: Number(t.duration) || 0,
+              cover: String(t.albumCover || ""),
+            });
+          }
+          if (tracks.length > 0) {
+            lib.markCustomPlaylistPlayed?.(id);
+            void window.__player.setQueueAndPlay(tracks, 0, { context: { type: "customPlaylist", id, title: playlist.title } });
+          }
+        },
+      }),
+    );
+
+    // Delete downloaded tracks option
+    const dlCount = countDownloadedForCustomPlaylist(id);
+    if (dlCount > 0) {
+      items.push({ kind: "sep" });
+      items.push(
+        buildItem({
+          label: "Delete from library",
+          icon: "ri-delete-bin-6-line",
+          danger: true,
+          onClick: async () => {
+            const trackIds = Array.isArray(playlist.trackIds) ? playlist.trackIds : [];
+            const preDeleteTrackIds = new Set();
+            
+            // Collect downloaded track IDs
+            try {
+              const st = lib.load?.() || {};
+              const downloaded = st.downloadedTracks && typeof st.downloadedTracks === "object" ? st.downloadedTracks : {};
+              for (const tid of trackIds) {
+                const entry = downloaded[String(tid)];
+                if (entry && typeof entry === "object" && entry.download?.fileUrl) {
+                  preDeleteTrackIds.add(Number(tid));
+                }
+              }
+            } catch {}
+            
+            // Delete tracks from disk
+            for (const tid of preDeleteTrackIds) {
+              try {
+                if (window.dl?.deleteFromDisk) {
+                  await window.dl.deleteFromDisk({ id: tid });
+                }
+              } catch {}
+            }
+            
+            // Scan library
+            try {
+              await window.dl?.scanLibrary?.();
+            } catch {}
+            
+            // Remove from localStorage
+            for (const tid of preDeleteTrackIds) {
+              try {
+                lib.removeDownloadedTrack?.(tid);
+              } catch {}
+            }
+            
+            refreshDownloadsIfVisible();
+          },
+        }),
+      );
+    }
+
+    // Download option
+    items.push({ kind: "sep" });
+    items.push(
+      buildItem({
+        label: "Download",
+        icon: "ri-download-2-line",
+        onClick: async () => {
+          if (!window.dl?.downloadTrack) return;
+          const quality = getDownloadQualityRaw();
+          const trackIds = Array.isArray(playlist.trackIds) ? playlist.trackIds : [];
+          const st = lib.load?.() || {};
+          const downloaded = st.downloadedTracks && typeof st.downloadedTracks === "object" ? st.downloadedTracks : {};
+          
+          // Download undownloaded tracks
+          for (const tid of trackIds) {
+            const entry = downloaded[String(tid)];
+            const isDownloaded = entry && typeof entry === "object" && entry.download?.fileUrl;
+            if (!isDownloaded) {
+              try {
+                const qualitySuffix = quality === "flac" ? 9 : quality === "mp3_320" ? 3 : 1;
+                const uuid = `customPlaylist_${id}_track_${tid}_${qualitySuffix}`;
+                const res = window.dl.downloadTrack({ id: tid, quality, uuid });
+                if (res && typeof res.then === "function") res.catch(() => {});
+              } catch {}
+            }
+          }
+        },
+      }),
+    );
+
+    items.push({ kind: "sep" });
+
+    items.push(
+      buildItem({
+        label: "Delete playlist",
+        icon: "ri-delete-bin-6-line",
+        danger: true,
+        onClick: () => {
+          lib.deleteCustomPlaylist?.(id);
+          window.__spotifyNav?.navigate?.({ name: "home" });
+        },
+      }),
+    );
+
+    return items;
+  };
+
+  const buildFolderSidebarMenu = ({ folderId }) => {
+    const id = String(folderId || "");
+    if (!id) return [];
+    const folder = lib.getFolder?.(id);
+    if (!folder) return [];
+
+    const items = [];
+
+    items.push(
+      buildItem({
+        label: "Play all",
+        icon: "ri-play-fill",
+        onClick: async () => {
+          if (!window.__player) return;
+          const children = Array.isArray(folder.children) ? folder.children : [];
+          const tracks = [];
+          for (const child of children) {
+            if (child.type === "customPlaylist") {
+              const cp = lib.getCustomPlaylist?.(child.id);
+              if (!cp) continue;
+              const tids = Array.isArray(cp.trackIds) ? cp.trackIds : [];
+              const map = cp.tracks && typeof cp.tracks === "object" ? cp.tracks : {};
+              for (const tid of tids) {
+                const t = map[String(tid)];
+                if (!t) continue;
+                tracks.push({
+                  id: tid,
+                  title: String(t.title || ""),
+                  artist: { name: String(t.artist || ""), id: null },
+                  album: { id: t.albumId || null, title: String(t.albumTitle || ""), cover_medium: String(t.albumCover || ""), cover: String(t.albumCover || "") },
+                  duration: Number(t.duration) || 0,
+                  cover: String(t.albumCover || ""),
+                });
+              }
+            }
+          }
+          if (tracks.length > 0) {
+            lib.markFolderPlayed?.(id);
+            void window.__player.setQueueAndPlay(tracks, 0, { context: { type: "folder", id, title: folder.title } });
+          }
+        },
+      }),
+    );
+
+    items.push({ kind: "sep" });
+
+    items.push(
+      buildItem({
+        label: "Delete folder",
+        icon: "ri-delete-bin-6-line",
+        danger: true,
+        onClick: () => {
+          lib.deleteFolder?.(id);
+          window.__spotifyNav?.navigate?.({ name: "home" });
+        },
+      }),
+    );
+
+    return items;
+  };
+
+  return { buildTrackMenu, buildCardMenu, buildCustomPlaylistSidebarMenu, buildFolderSidebarMenu };
 }

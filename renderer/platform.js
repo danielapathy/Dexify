@@ -6,10 +6,14 @@ export function wirePlatformClasses() {
 
   const isElectron = /\bElectron\/\d+/i.test(ua);
   const isMac = /Mac/i.test(platform) || /Macintosh/i.test(ua);
+  const isCapacitor = typeof window.Capacitor !== "undefined";
+  const isAndroid = /Android/i.test(ua);
 
   const root = document.documentElement;
   root.classList.toggle("is-electron", isElectron);
   root.classList.toggle("is-mac", isMac);
+  root.classList.toggle("is-capacitor", isCapacitor);
+  root.classList.toggle("is-android", isAndroid);
 }
 
 export function wireRanges() {

@@ -37,6 +37,7 @@ export function wireLibraryData() {
 
   const applySearchFilter = () => {
     const q = norm(searchInput.value);
+    list.dataset.searchActive = q ? "1" : "";
     const items = Array.from(list.querySelectorAll(".library-item"));
     for (const it of items) {
       const title = getText(it.querySelector(".library-item__title"));
@@ -89,7 +90,15 @@ export function wireLibraryData() {
     if (!isOpen()) setSearchOpen(true);
     else searchInput.focus();
   });
-  searchInput.addEventListener("input", () => applySearchFilter());
+  let wasSearchActive = false;
+  searchInput.addEventListener("input", () => {
+    const isActive = Boolean(norm(searchInput.value));
+    applySearchFilter();
+    if (isActive !== wasSearchActive) {
+      wasSearchActive = isActive;
+      scheduleRefresh(0);
+    }
+  });
   searchInput.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     setSearchOpen(false);
@@ -147,6 +156,14 @@ export function wireLibraryData() {
     }
     if (item.dataset.route === "downloads") {
       window.__spotifyNav?.navigate?.({ name: "downloads" });
+      return;
+    }
+    if (item.dataset.route === "customPlaylist" && item.dataset.customPlaylistId) {
+      window.__spotifyNav?.navigate?.({ name: "customPlaylist", id: item.dataset.customPlaylistId });
+      return;
+    }
+    if (item.dataset.route === "folder" && item.dataset.folderId) {
+      window.__spotifyNav?.navigate?.({ name: "folder", id: item.dataset.folderId });
       return;
     }
     if (item.dataset.route === "saved-track") {
@@ -320,19 +337,43 @@ export function wireLibraryData() {
 
     const pinnedRoutes = new Set(["liked", "downloads"]);
     const pinned = items.filter((it) => pinnedRoutes.has(String(it.dataset.route || "")));
-    const rest = items.filter((it) => !pinnedRoutes.has(String(it.dataset.route || "")));
+
+    // Separate folder children from sortable top-level items
+    const folderChildren = items.filter((it) => it.classList.contains("is-folder-child"));
+    const topLevel = items.filter((it) => !pinnedRoutes.has(String(it.dataset.route || "")) && !it.classList.contains("is-folder-child"));
+
+    // Group folder children by parent folder ID
+    const childrenByFolder = new Map();
+    for (const ch of folderChildren) {
+      const pid = ch.dataset.parentFolderId || "";
+      if (!pid) continue;
+      if (!childrenByFolder.has(pid)) childrenByFolder.set(pid, []);
+      childrenByFolder.get(pid).push(ch);
+    }
 
     const num = (v) => {
       const n = Number(v);
       return Number.isFinite(n) ? n : 0;
     };
 
-    if (mode === "recent" || mode === "recently-added") {
-      const key = mode === "recent" ? "sortRecent" : "sortAdded";
-      rest.sort((a, b) => num(b.dataset[key]) - num(a.dataset[key]));
+    // Rebuild list: pinned → sorted top-level (with folder children inserted after their parent)
+    const rebuildList = (sorted) => {
       list.innerHTML = "";
       for (const it of pinned) list.appendChild(it);
-      for (const it of rest) list.appendChild(it);
+      for (const it of sorted) {
+        list.appendChild(it);
+        // If this is a folder, append its children right after
+        const fid = it.dataset.folderId || "";
+        if (fid && childrenByFolder.has(fid)) {
+          for (const ch of childrenByFolder.get(fid)) list.appendChild(ch);
+        }
+      }
+    };
+
+    if (mode === "recent" || mode === "recently-added") {
+      const key = mode === "recent" ? "sortRecent" : "sortAdded";
+      topLevel.sort((a, b) => num(b.dataset[key]) - num(a.dataset[key]));
+      rebuildList(topLevel);
       return;
     }
 
@@ -345,10 +386,8 @@ export function wireLibraryData() {
     };
 
     if (mode === "alpha" || mode === "creator") {
-      rest.sort((a, b) => keyFor(a).localeCompare(keyFor(b)));
-      list.innerHTML = "";
-      for (const it of pinned) list.appendChild(it);
-      for (const it of rest) list.appendChild(it);
+      topLevel.sort((a, b) => keyFor(a).localeCompare(keyFor(b)));
+      rebuildList(topLevel);
     }
   };
 
@@ -528,6 +567,179 @@ export function wireLibraryData() {
       void refresh();
     }, Math.max(0, Number(delayMs) || 0));
   };
+
+  // ── Folder collapse/expand ─────────────────────────────────────
+  const lib = getLocalLibrary();
+  const FOLDER_EXPAND_KEY = "spotify.folderExpandState";
+
+  const toggleFolderExpand = (folderId) => {
+    try {
+      const raw = localStorage.getItem(FOLDER_EXPAND_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      parsed[folderId] = !parsed[folderId];
+      localStorage.setItem(FOLDER_EXPAND_KEY, JSON.stringify(parsed));
+    } catch {}
+    scheduleRefresh(0);
+  };
+
+  list.addEventListener("click", (e) => {
+    const chevron = e.target?.closest?.(".library-item__chevron");
+    if (!chevron) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const item = chevron.closest(".library-item");
+    const folderId = item?.dataset?.folderId;
+    if (folderId) toggleFolderExpand(folderId);
+  });
+
+  // ── Drag-and-drop into/out-of folders ─────────────────────────
+  const libraryDropZone = list;
+
+  const isDraggableItem = (item) => {
+    const route = String(item?.dataset?.route || "");
+    if (route === "customPlaylist" && item.dataset.customPlaylistId) return true;
+    const et = String(item?.dataset?.entityType || "");
+    return et === "playlist" || et === "album";
+  };
+
+  const getDragPayload = (item) => {
+    const route = String(item?.dataset?.route || "");
+    if (route === "customPlaylist" && item.dataset.customPlaylistId) {
+      return { type: "customPlaylist", id: String(item.dataset.customPlaylistId) };
+    }
+    const et = String(item?.dataset?.entityType || "");
+    const eid = String(item?.dataset?.entityId || "");
+    if ((et === "playlist" || et === "album") && eid) {
+      return { type: et, id: eid };
+    }
+    return null;
+  };
+
+  const isFolderItem = (item) => {
+    return String(item?.dataset?.route || "") === "folder" && Boolean(item?.dataset?.folderId);
+  };
+
+  let draggingFromFolder = "";
+
+  const clearDragClasses = () => {
+    for (const it of list.querySelectorAll(".library-item")) {
+      it.classList.remove("is-dragging", "is-drag-over");
+    }
+    libraryDropZone?.classList?.remove?.("is-drag-over");
+    draggingFromFolder = "";
+  };
+
+  list.addEventListener("dragstart", (e) => {
+    const item = e.target?.closest?.(".library-item");
+    if (!item || !isDraggableItem(item)) { e.preventDefault(); return; }
+    const payload = getDragPayload(item);
+    if (!payload) { e.preventDefault(); return; }
+    // Include source folder if dragging out of a folder
+    const fromFolderId = item.dataset.parentFolderId || "";
+    if (fromFolderId) {
+      payload.fromFolderId = fromFolderId;
+      draggingFromFolder = fromFolderId;
+    }
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", JSON.stringify(payload));
+    item.classList.add("is-dragging");
+  });
+
+  list.addEventListener("dragend", () => clearDragClasses());
+
+  list.addEventListener("dragover", (e) => {
+    const item = e.target?.closest?.(".library-item");
+    if (!item || !isFolderItem(item)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    for (const it of list.querySelectorAll(".library-item.is-drag-over")) {
+      if (it !== item) it.classList.remove("is-drag-over");
+    }
+    libraryDropZone?.classList?.remove?.("is-drag-over");
+    item.classList.add("is-drag-over");
+  });
+
+  list.addEventListener("dragleave", (e) => {
+    const item = e.target?.closest?.(".library-item");
+    if (!item) return;
+    const rect = item.getBoundingClientRect();
+    const x = e.clientX, y = e.clientY;
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      item.classList.remove("is-drag-over");
+    }
+  });
+
+  list.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const folderItem = e.target?.closest?.(".library-item");
+    if (!folderItem || !isFolderItem(folderItem)) return;
+    const targetFolderId = String(folderItem.dataset.folderId);
+    let payload = null;
+    try { payload = JSON.parse(e.dataTransfer.getData("text/plain")); } catch {}
+    if (!payload?.type || !payload?.id) return;
+    // If moving from one folder to another, remove from source first
+    if (payload.fromFolderId && payload.fromFolderId !== targetFolderId) {
+      lib.removeChildFromFolder?.(payload.fromFolderId, { type: payload.type, id: payload.id });
+    }
+    lib.addChildToFolder?.(targetFolderId, { type: payload.type, id: payload.id });
+    clearDragClasses();
+    // Live-refresh the folder page if it's currently being viewed
+    try {
+      const route = window.__navRoute && typeof window.__navRoute === "object" ? window.__navRoute : null;
+      if (String(route?.name || "") === "folder" && String(route?.id || "") === targetFolderId) {
+        window.__spotifyNav?.navigate?.({ name: "folder", id: targetFolderId, refresh: true }, { replace: true });
+      }
+    } catch {}
+  });
+
+  // Library list itself as drop zone (drag out of folder → top-level)
+  const isInSourceFolder = (item) => {
+    if (!item || !draggingFromFolder) return false;
+    return item.dataset.parentFolderId === draggingFromFolder || item.dataset.folderId === draggingFromFolder;
+  };
+
+  list.addEventListener("dragover", (e) => {
+    if (!draggingFromFolder) return;
+    const item = e.target?.closest?.(".library-item");
+    // Skip if hovering a folder target or a sibling inside the same source folder
+    if (item && (isFolderItem(item) || isInSourceFolder(item))) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    for (const it of list.querySelectorAll(".library-item.is-drag-over")) {
+      it.classList.remove("is-drag-over");
+    }
+    libraryDropZone.classList.add("is-drag-over");
+  });
+  list.addEventListener("dragleave", (e) => {
+    const rect = list.getBoundingClientRect();
+    const x = e.clientX, y = e.clientY;
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      libraryDropZone.classList.remove("is-drag-over");
+    }
+  });
+  list.addEventListener("drop", (e) => {
+    if (!draggingFromFolder) return;
+    const folderItem = e.target?.closest?.(".library-item");
+    if (folderItem && (isFolderItem(folderItem) || isInSourceFolder(folderItem))) return;
+    e.preventDefault();
+    let payload = null;
+    try { payload = JSON.parse(e.dataTransfer.getData("text/plain")); } catch {}
+    if (!payload?.type || !payload?.id) return;
+    if (payload.fromFolderId) {
+      lib.removeChildFromFolder?.(payload.fromFolderId, { type: payload.type, id: payload.id });
+    }
+    clearDragClasses();
+  });
+
+  // Make items draggable via mutation observer (new items added dynamically)
+  const setDraggable = () => {
+    for (const item of list.querySelectorAll(".library-item")) {
+      item.draggable = isDraggableItem(item);
+    }
+  };
+  setDraggable();
+  const dragObserver = new MutationObserver(() => setDraggable());
+  dragObserver.observe(list, { childList: true, subtree: false });
 
   void refresh();
   window.addEventListener("local-library:changed", () => scheduleRefresh());

@@ -41,6 +41,10 @@ export function createEntitySections({
       row.dataset.trackIndex = String(index - 1);
       const trackId = Number(t?.id || t?.SNG_ID);
       if (Number.isFinite(trackId) && trackId > 0) row.dataset.trackId = String(trackId);
+      row.dataset.dbg = "track-row";
+      row.dataset.dbgType = "track-row";
+      if (Number.isFinite(trackId) && trackId > 0) row.dataset.dbgId = String(trackId);
+      row.dataset.dbgDesc = String(t?.title || t?.SNG_TITLE || "");
       if (showDownloadStatus) {
         const downloaded = isTrackDownloaded(t, trackId);
         row.dataset.downloaded = downloaded ? "1" : "0";

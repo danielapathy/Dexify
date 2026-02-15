@@ -1,0 +1,970 @@
+/* ──────────────────────────────────────────────────────
+   Mobile / Android layout
+   Activated when html.is-mobile is set (Capacitor or
+   dev-preview) OR via the narrow-viewport media query.
+   ────────────────────────────────────────────────────── */
+
+/* ── Breakpoint: auto-activate at phone widths ─────── */
+@media (max-width: 600px) {
+  html:not(.is-desktop-forced) {
+    --mobile: 1;
+  }
+}
+
+html.is-mobile {
+  --mobile: 1;
+}
+
+/* ── Guard: only apply when --mobile is set ────────── */
+
+/* == Root / Stage ===================================== */
+html:has(style),
+html {
+  /* safe-area for Android notch / nav gestures */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+@supports (--mobile: 1) {
+  html[style*="--mobile:1"] .stage,
+  html.is-mobile .stage {
+    padding: 0;
+    place-items: stretch;
+  }
+
+  html.is-mobile .window {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+    gap: 0;
+  }
+
+  html.is-mobile .window::before {
+    border-radius: 0;
+  }
+
+  /* == Topbar ========================================= */
+  /* On mobile: [avatar] [All] [Music] [Podcasts] ... on one row */
+  html.is-mobile .topbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-radius: 0;
+    border: 0;
+    padding: 10px 0 8px 14px;
+    padding-top: calc(10px + var(--sat));
+    min-height: 44px;
+    -webkit-app-region: no-drag;
+    background: transparent;
+  }
+
+  /* Hide nav arrows, home button, search bar, notifications */
+  html.is-mobile .nav-arrows,
+  html.is-mobile .home-btn,
+  html.is-mobile .topbar__center,
+  html.is-mobile #notificationsBtn {
+    display: none !important;
+  }
+
+  html.is-mobile .topbar__left {
+    display: none;
+  }
+
+  /* Avatar: small circle, first element via order */
+  html.is-mobile .topbar__right {
+    order: -1;
+    gap: 0;
+    flex-shrink: 0;
+  }
+
+  html.is-mobile .avatar-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  html.is-mobile .avatar-btn img {
+    border-radius: 999px;
+  }
+
+  html.is-mobile .account {
+    order: -1;
+  }
+
+  /* Chips: when moved into topbar, fill remaining space */
+  html.is-mobile .topbar > .chips {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 0 14px 0 0;
+  }
+
+  /* Dynamic fade based on scroll position (classes set by JS) */
+  html.is-mobile .topbar > .chips.can-scroll-right:not(.can-scroll-left) {
+    -webkit-mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 24px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 24px), transparent 100%);
+  }
+
+  html.is-mobile .topbar > .chips.can-scroll-left:not(.can-scroll-right) {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 12px, #000 100%);
+    mask-image: linear-gradient(to right, transparent, #000 12px, #000 100%);
+  }
+
+  html.is-mobile .topbar > .chips.can-scroll-left.can-scroll-right {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 24px), transparent 100%);
+    mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 24px), transparent 100%);
+  }
+
+  /* == Content area ==================================== */
+  html.is-mobile .content {
+    grid-template-columns: minmax(0, 1fr) !important;
+    padding: 0 !important;
+    gap: 0 !important;
+  }
+
+  html.is-mobile .main {
+    min-width: 0;
+  }
+
+  /* Hide sidebar on mobile — we use bottom nav instead */
+  html.is-mobile .sidebar {
+    display: none !important;
+  }
+
+  html.is-mobile .splitter {
+    display: none !important;
+  }
+
+  html.is-mobile .friend-handle {
+    display: none !important;
+  }
+
+  /* Main panel: no rounded corners, full bleed */
+  html.is-mobile .panel--main {
+    border-radius: 0;
+    border: 0;
+  }
+
+  html.is-mobile .main__scroll {
+    padding: 12px 14px 20px;
+    /* Extra bottom padding for mini-player + bottom nav */
+    padding-bottom: calc(132px + var(--sab));
+    -webkit-overflow-scrolling: touch;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  /* == Quick grid / home ============================== */
+  html.is-mobile .quick-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  html.is-mobile .quick-card {
+    height: 56px;
+    grid-template-columns: 48px 1fr;
+    gap: 0;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.07);
+  }
+
+  html.is-mobile .quick-card__cover {
+    width: 48px;
+    height: 56px;
+    border-radius: 0;
+  }
+
+  html.is-mobile .quick-card__cover img {
+    border-radius: 0;
+  }
+
+  html.is-mobile .quick-card__meta {
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    min-width: 0;
+  }
+
+  html.is-mobile .quick-card__title {
+    font-size: 13px;
+    font-weight: 700;
+    padding-right: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Hide subtitle in compact quick cards */
+  html.is-mobile .quick-card__subtitle {
+    display: none;
+  }
+
+  /* Hide hover-play on mobile (we use tap) */
+  html.is-mobile .hover-play {
+    display: none;
+  }
+
+  /* == Chips / filters ================================ */
+  /* Chips sit inline right after the avatar in the top area */
+  html.is-mobile .chips {
+    gap: 8px;
+    padding: 2px 0 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    flex-wrap: nowrap;
+  }
+
+  html.is-mobile .chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  html.is-mobile .chip {
+    height: 32px;
+    padding: 0 16px;
+    font-size: 13px;
+    font-weight: 700;
+    flex: 0 0 auto;
+    border-radius: 999px;
+  }
+
+  html.is-mobile .chip.is-active {
+    background: var(--accent-green, #1DB954);
+    color: #000;
+  }
+
+  /* == Carousel / big cards ============================ */
+  html.is-mobile .big-card {
+    width: 170px;
+    padding: 0;
+    border-radius: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  html.is-mobile .big-card:hover {
+    background: transparent;
+  }
+
+  html.is-mobile .big-card__cover {
+    border-radius: 8px;
+  }
+
+  html.is-mobile .big-card__title {
+    font-size: 14px;
+    font-weight: 700;
+    margin-top: 8px;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  html.is-mobile .big-card__subtitle {
+    font-size: 13px;
+    font-weight: 400;
+    margin-top: 4px;
+    color: rgba(255, 255, 255, 0.55);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Carousel wrapper: use overflow clip so it doesn't block
+     inner touch/mouse scroll, and hide desktop pseudo-element
+     fades (we use mask-image on the carousel itself instead). */
+  html.is-mobile .made-for {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  html.is-mobile .carousel-wrap {
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  html.is-mobile .carousel-wrap::before,
+  html.is-mobile .carousel-wrap::after {
+    display: none;
+  }
+
+  html.is-mobile .carousel {
+    gap: 14px;
+    padding: 4px 0 6px;
+    cursor: grab;
+    overflow-x: auto;
+    touch-action: manipulation;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  /* Fade right edge only (initial state: scrolled to start) */
+  html.is-mobile .carousel-wrap--fade-right:not(.carousel-wrap--fade-left) .carousel {
+    -webkit-mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 48px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 48px), transparent 100%);
+  }
+
+  /* Fade left edge only (scrolled to end) */
+  html.is-mobile .carousel-wrap--fade-left:not(.carousel-wrap--fade-right) .carousel {
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 48px, #000 100%);
+    mask-image: linear-gradient(to right, transparent 0%, #000 48px, #000 100%);
+  }
+
+  /* Fade both edges (scrolled in the middle) */
+  html.is-mobile .carousel-wrap--fade-left.carousel-wrap--fade-right .carousel {
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 48px, #000 calc(100% - 48px), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0%, #000 48px, #000 calc(100% - 48px), transparent 100%);
+  }
+
+  html.is-mobile .carousel-nav {
+    display: none;
+  }
+
+  /* Section headings */
+  html.is-mobile .made-for h2,
+  html.is-mobile .h2 {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.3px;
+  }
+
+  html.is-mobile .h2--small {
+    font-size: 20px;
+  }
+
+  /* == Search results ================================= */
+  html.is-mobile .search-tracks__title {
+    font-size: 22px;
+  }
+
+  html.is-mobile .search-track {
+    grid-template-columns: 46px 1fr 52px;
+    gap: 10px;
+    padding: 8px 6px;
+  }
+
+  html.is-mobile .search-track__cover {
+    width: 42px;
+    height: 42px;
+  }
+
+  html.is-mobile .search-track__title {
+    font-size: 14px;
+  }
+
+  html.is-mobile .search-track__subtitle {
+    font-size: 12px;
+  }
+
+  /* == Entity view ==================================== */
+  /* Fix full-bleed margins to match mobile scroll padding (12px 14px) */
+  html.is-mobile .entity-view {
+    margin: -12px -14px 0;
+    padding: 12px 14px 0;
+  }
+
+  html.is-mobile .entity-header {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    align-items: start;
+    text-align: center;
+    gap: 14px;
+    padding: 10px 2px 14px;
+  }
+
+  html.is-mobile .entity-cover {
+    width: 200px;
+    height: 200px;
+    border-radius: 10px;
+  }
+
+  html.is-mobile .entity-title {
+    font-size: 28px;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.1;
+  }
+
+  html.is-mobile .entity-subtitle {
+    text-align: center;
+  }
+
+  html.is-mobile .entity-actions {
+    justify-content: center;
+  }
+
+  html.is-mobile .entity-track {
+    grid-template-columns: 28px 1fr 28px 48px;
+    gap: 8px;
+    padding: 8px 6px;
+  }
+
+  html.is-mobile .entity-tracks--with-covers .entity-track {
+    grid-template-columns: 28px 42px 1fr 28px 48px;
+  }
+
+  html.is-mobile .entity-tracks--dl .entity-track {
+    grid-template-columns: 28px 1fr 28px 28px 48px;
+  }
+
+  html.is-mobile .entity-tracks--with-covers.entity-tracks--dl .entity-track {
+    grid-template-columns: 28px 42px 1fr 28px 28px 48px;
+  }
+
+  html.is-mobile .entity-track__cover {
+    width: 42px;
+    height: 42px;
+  }
+
+  html.is-mobile .entity-track__title {
+    font-size: 14px;
+  }
+
+  html.is-mobile .entity-track__artist {
+    font-size: 12px;
+  }
+
+  /* == Settings view ================================== */
+  html.is-mobile .settings-view__title {
+    font-size: 36px;
+  }
+
+  html.is-mobile .settings-item {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  html.is-mobile .settings-item__control {
+    justify-content: flex-start;
+  }
+
+  html.is-mobile .settings-item__value {
+    text-align: left;
+  }
+
+  /* == Notifications ================================== */
+  html.is-mobile .notifications-shell__title {
+    font-size: 26px;
+  }
+
+  /* == Player ========================================= */
+  /* Floating rounded mini-bar above bottom nav (Spotify-style) */
+  html.is-mobile .player {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    bottom: calc(56px + var(--sab) + 4px);
+    z-index: 90;
+    height: 56px;
+    border-radius: 12px;
+    border: 0;
+    background: rgba(38, 38, 38, 0.96);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    grid-template-columns: 1fr auto auto;
+    padding: 0 8px 0 0;
+    gap: 0;
+    align-items: center;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+  }
+
+  html.is-mobile .player__left {
+    gap: 10px;
+    overflow: hidden;
+    padding-left: 6px;
+  }
+
+  html.is-mobile .player__cover {
+    width: 42px;
+    height: 42px;
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+
+  html.is-mobile .player__empty-cover {
+    width: 42px;
+    height: 42px;
+    border-radius: 6px;
+  }
+
+  html.is-mobile .player__meta {
+    min-width: 0;
+  }
+
+  html.is-mobile .player__title {
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  html.is-mobile .player__artist {
+    font-size: 11px;
+    margin-top: 1px;
+    color: rgba(255, 255, 255, 0.55);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Hide like button in mini player */
+  html.is-mobile .player__left > .icon-btn {
+    display: none;
+  }
+
+  /* Center: strip down to just the play button */
+  html.is-mobile .player__center {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0;
+    min-width: 0;
+  }
+
+  html.is-mobile .player__controls {
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
+
+  /* Hide shuffle/repeat/prev/next in mini bar */
+  html.is-mobile .player__controls [aria-label="Shuffle"],
+  html.is-mobile .player__controls [aria-label="Repeat"],
+  html.is-mobile .player__controls #playerPrevBtn,
+  html.is-mobile .player__controls #playerNextBtn {
+    display: none;
+  }
+
+  html.is-mobile .player .play-btn {
+    width: 34px;
+    height: 34px;
+    background: transparent;
+  }
+
+  html.is-mobile .player .play-btn .icon {
+    font-size: 22px;
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  /* Right side: show only the queue/device icon */
+  html.is-mobile .player__right {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 0;
+  }
+
+  html.is-mobile .player__right .volume,
+  html.is-mobile .player__right #playerAudioSettingsBtn {
+    display: none;
+  }
+
+  html.is-mobile .player__right [aria-label="Queue"] {
+    width: 32px;
+    height: 32px;
+  }
+
+  html.is-mobile .player__right [aria-label="Queue"] .icon {
+    font-size: 18px;
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  /* Progress as thin bar at the very bottom of the mini player */
+  html.is-mobile .player__progress {
+    position: absolute;
+    bottom: 0;
+    left: 12px;
+    right: 12px;
+    height: 2px;
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 0;
+  }
+
+  html.is-mobile .player__progress .time {
+    display: none;
+  }
+
+  html.is-mobile .player__progress .range {
+    height: 2px;
+    border-radius: 2px;
+  }
+
+  html.is-mobile .player__progress .range::-webkit-slider-thumb {
+    width: 0;
+    height: 0;
+  }
+
+  /* == Mobile Bottom Navigation ======================= */
+  html.is-mobile .mobile-nav {
+    display: flex !important;
+  }
+
+  /* == Search popover: full-width on mobile =========== */
+  html.is-mobile .search-popover {
+    position: fixed;
+    top: calc(56px + var(--sat));
+    left: 0;
+    right: 0;
+    z-index: 60;
+  }
+
+  html.is-mobile .search-popover__panel {
+    border-radius: 0 0 14px 14px;
+    max-height: 70vh;
+  }
+
+  /* == Account menu: bottom sheet on mobile =========== */
+  html.is-mobile .account-menu {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
+    width: 100%;
+    border-radius: 16px 16px 0 0;
+    padding: 16px;
+    padding-bottom: calc(16px + var(--sab));
+    z-index: 100;
+  }
+
+  /* == Context menu: bottom sheet ===================== */
+  html.is-mobile .context-menu {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    transform: none !important;
+  }
+
+  html.is-mobile .context-menu__panel {
+    width: 100%;
+    border-radius: 16px 16px 0 0;
+    padding-bottom: calc(8px + var(--sab));
+    animation: context-menu-slide-up 200ms ease-out both;
+  }
+
+  @keyframes context-menu-slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* == Signed out view ================================ */
+  html.is-mobile .signed-out-view {
+    padding: 32px 18px 80px;
+  }
+
+  html.is-mobile .signed-out-view__title {
+    font-size: 32px;
+  }
+
+  html.is-mobile .signed-out-view__subtitle {
+    font-size: 14px;
+  }
+
+  html.is-mobile .signed-out-view__btn {
+    height: 56px;
+    font-size: 18px;
+  }
+
+  /* == Scrollbars: hide on mobile ===================== */
+  html.is-mobile .library__list::-webkit-scrollbar,
+  html.is-mobile .main__scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  html.is-mobile .library__list,
+  html.is-mobile .main__scroll {
+    scrollbar-width: none;
+  }
+}
+
+/* ── Bottom navigation bar ───────────────────────────
+   Always present in DOM, hidden unless .is-mobile.
+   Sits at the very bottom of the viewport.
+   ──────────────────────────────────────────────────── */
+.mobile-nav {
+  display: none;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 95;
+  height: calc(56px + var(--sab, 0px));
+  padding-bottom: var(--sab, 0px);
+  background:
+    linear-gradient(180deg, rgba(18, 18, 18, 0.98), rgba(8, 8, 8, 0.99));
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  align-items: center;
+  justify-content: space-around;
+}
+
+.mobile-nav__item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 140ms ease;
+}
+
+.mobile-nav__item.is-active {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.mobile-nav__item:active {
+  transform: scale(0.96);
+}
+
+.mobile-nav__icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.mobile-nav__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+/* ── Mobile library drawer ───────────────────────────
+   Full-screen overlay that slides up when Library
+   tab is tapped on mobile.
+   ──────────────────────────────────────────────────── */
+.mobile-library-drawer {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  opacity: 0;
+  transition: opacity 200ms ease;
+  pointer-events: none;
+}
+
+.mobile-library-drawer.is-open {
+  display: block;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mobile-library-drawer__panel {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 80vh;
+  background: rgba(18, 18, 18, 0.98);
+  border-radius: 18px 18px 0 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 12px 14px;
+  padding-bottom: calc(64px + var(--sab, 0px));
+  overflow-y: auto;
+  transform: translateY(100%);
+  transition: transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.mobile-library-drawer.is-open .mobile-library-drawer__panel {
+  transform: translateY(0);
+}
+
+.mobile-library-drawer__handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.24);
+  margin: 0 auto 12px;
+}
+
+.mobile-library-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 4px 12px;
+}
+
+.mobile-library-drawer__title {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+}
+
+.mobile-library-drawer__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Reuse library-item styles inside the drawer */
+.mobile-library-drawer .library-item {
+  padding: 10px 8px;
+  border-radius: 10px;
+}
+
+.mobile-library-drawer .library-item:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Full-screen player (expanded from mini-bar) ─────
+   Shown when user taps the mini player on mobile.
+   ──────────────────────────────────────────────────── */
+.mobile-player-full {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background:
+    radial-gradient(800px 500px at 30% 20%, var(--entity-accent, rgba(90, 55, 255, 0.32)), transparent 60%),
+    rgba(12, 12, 12, 0.98);
+  flex-direction: column;
+  padding: calc(16px + var(--sat, 0px)) 24px calc(24px + var(--sab, 0px));
+  opacity: 0;
+  transform: translateY(100%);
+  transition: opacity 260ms ease, transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.mobile-player-full.is-open {
+  display: flex;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.mobile-player-full__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0 16px;
+}
+
+.mobile-player-full__dismiss {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.82);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.mobile-player-full__context {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.62);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.mobile-player-full__cover {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+}
+
+.mobile-player-full__cover img {
+  width: min(100%, 340px);
+  aspect-ratio: 1 / 1;
+  border-radius: 12px;
+  object-fit: cover;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+
+.mobile-player-full__meta {
+  padding: 18px 0 12px;
+  min-width: 0;
+}
+
+.mobile-player-full__title {
+  font-size: 22px;
+  font-weight: 850;
+  letter-spacing: -0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-player-full__artist {
+  margin-top: 4px;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.62);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-player-full__progress {
+  display: grid;
+  grid-template-columns: 42px 1fr 42px;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.mobile-player-full__progress .range {
+  height: 4px;
+}
+
+.mobile-player-full__progress .time {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.mobile-player-full__controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 12px 0;
+}
+
+.mobile-player-full__controls .icon-btn {
+  width: 44px;
+  height: 44px;
+}
+
+.mobile-player-full__controls .icon-btn .icon {
+  font-size: 22px;
+}
+
+.mobile-player-full__controls .play-btn {
+  width: 64px;
+  height: 64px;
+}
+
+.mobile-player-full__controls .play-btn .icon {
+  font-size: 28px;
+}
+
+.mobile-player-full__extra {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0 0;
+}

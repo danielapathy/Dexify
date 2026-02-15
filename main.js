@@ -24,6 +24,7 @@ const {
 } = require("./main/sessionStorage");
 const { broadcastSessionChanged, broadcastDownloadEvent } = require("./main/broadcast");
 
+const { registerMobilePreviewIpcHandlers } = require("./main/ipc/mobilePreview");
 const { registerAuthIpcHandlers } = require("./main/ipc/auth");
 const { registerAppIpcHandlers } = require("./main/ipc/app");
 const { registerDownloadIpcHandlers } = require("./main/ipc/downloads");
@@ -239,6 +240,7 @@ app.whenReady().then(async () => {
     extractDeezerAppStateWithArl,
   });
 
+  registerMobilePreviewIpcHandlers({ ipcMain });
   registerAppIpcHandlers({ ipcMain, app, shell, getSessionDir, getAppStateStoragePath });
   state.downloadsDebug = registerDownloadIpcHandlers({
     ipcMain,
